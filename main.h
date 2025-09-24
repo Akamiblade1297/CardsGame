@@ -3,6 +3,10 @@
 #include <deque>
 #include <algorithm>
 #include <random>
+#include <vector>
+
+#define CARDS 170
+#define TRESH 95
 
 class Card {
     protected:
@@ -13,7 +17,7 @@ class Card {
         static int X, Y, Rotation;
 
         explicit Card ( uint8_t num, bool face = false, int x = 0, int y = 0, int rot = 0 )
-            : Face(face), Trap(num<95), Number(num) { setTransform(x, y, rot); }
+            : Face(face), Trap(num<TRESH), Number(num) { setTransform(x, y, rot); }
 
         int getNumber () {
             return Number;
@@ -35,6 +39,7 @@ class CardContainer {
     public:
         std::deque<Card> Cards;
 
+        CardContainer () {}
         CardContainer ( std::deque<Card> cards )
             : Cards(cards) {}
 
@@ -49,16 +54,12 @@ class CardContainer {
 };
 
 class Deck : public CardContainer {
-    private:
-        std::random_device Rd;
-        std::default_random_engine Rng;
     public:
-        Deck ( std::deque<Card> cards ) : CardContainer(cards) {
-            Rng = std::default_random_engine(Rd());
-        }
+        Deck () {}
+        Deck ( std::deque<Card> cards ) : CardContainer(cards) {}
 
-        void shuffle () {
-            std::shuffle(Cards.begin(), Cards.end(), Rng);
+        void shuffle (std::default_random_engine rng) {
+            std::shuffle(Cards.begin(), Cards.end(), rng);
         }
 };
 
@@ -69,4 +70,28 @@ class Player {
         std::string Name;
         CardContainer Inventory;
         CardContainer Equiped;
+};
+
+class Table : public CardContainer {
+    private:
+        std::random_device Rd;
+        std::default_random_engine Rng;
+    public:
+        std::vector<Player> Players;
+        Deck TrapDoors;
+        Deck Treasures;
+
+        Table () {
+            Rng = std::default_random_engine(Rd());
+
+            for ( int i = 0 ; i < TRESH; i++ ) {
+                TrapDoors.add(Card(i));
+            }
+            for ( int i = TRESH ; i < CARDS; i++ ) {
+                Treasures.add(Card(i));
+            }
+
+            TrapDoors.shuffle(Rng);
+            Treasures.shuffle(Rng);
+        }
 };
