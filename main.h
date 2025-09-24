@@ -4,8 +4,6 @@
 #include <algorithm>
 #include <random>
 
-std::random_device rd;
-
 class Card {
     protected:
         bool Trap;
@@ -37,6 +35,9 @@ class CardContainer {
     public:
         std::deque<Card> Cards;
 
+        CardContainer ( std::deque<Card> cards )
+            : Cards(cards) {}
+
         void add ( Card card ) {
             Cards.push_front(card);
         }
@@ -48,9 +49,24 @@ class CardContainer {
 };
 
 class Deck : public CardContainer {
+    private:
+        std::random_device Rd;
+        std::default_random_engine Rng;
     public:
-        void shuffle () {
-            std::default_random_engine rng(rd());
-            std::shuffle(Cards.begin(), Cards.end(), rng);
+        Deck ( std::deque<Card> cards ) : CardContainer(cards) {
+            Rng = std::default_random_engine(Rd());
         }
+
+        void shuffle () {
+            std::shuffle(Cards.begin(), Cards.end(), Rng);
+        }
+};
+
+class Player {
+    private:
+        uint32_t Id;
+    public:
+        std::string Name;
+        CardContainer Inventory;
+        CardContainer Equiped;
 };
