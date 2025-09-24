@@ -1,8 +1,9 @@
 #include <iostream>
-#include <stdint.h>
-#include "cards.h"
+#include "main.h"
 
 int main () {
+    Table table;
+    PlayerManager playerMgr;
 
     return 0;
 }

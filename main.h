@@ -1,12 +1,14 @@
 #include <iostream>
 #include <stdint.h>
-#include <deque>
+#include <string>
+#include <vector>
 #include <algorithm>
 #include <random>
-#include <vector>
 
 #define CARDS 170
 #define TRESH 95
+
+// CARDS CLASSES // 
 
 class Card {
     protected:
@@ -16,7 +18,7 @@ class Card {
         bool Face;
         static int X, Y, Rotation;
 
-        explicit Card ( uint8_t num, bool face = false, int x = 0, int y = 0, int rot = 0 )
+        explicit Card ( uint8_t num, bool face = true, int x = 0, int y = 0, int rot = 0 )
             : Face(face), Trap(num<TRESH), Number(num) { setTransform(x, y, rot); }
 
         int getNumber () {
@@ -37,39 +39,35 @@ class Card {
 
 class CardContainer {
     public:
-        std::deque<Card> Cards;
+        std::vector<Card*> Cards;
 
         CardContainer () {}
-        CardContainer ( std::deque<Card> cards )
+        CardContainer ( std::vector<Card*> cards )
             : Cards(cards) {}
 
-        void add ( Card card ) {
-            Cards.push_front(card);
+        void push ( Card* card ) {
+            Cards.push_back(card);
         }
         void move ( int i, CardContainer* container ) {
-            Card card = Cards[i];
+            Card* card = Cards[i];
             Cards.erase(Cards.begin()+i);
-            container->add(card);
+            container->push(card);
         }
 };
 
 class Deck : public CardContainer {
     public:
         Deck () {}
-        Deck ( std::deque<Card> cards ) : CardContainer(cards) {}
+        Deck ( std::vector<Card*> cards ) : CardContainer(cards) {}
 
         void shuffle (std::default_random_engine rng) {
             std::shuffle(Cards.begin(), Cards.end(), rng);
         }
-};
-
-class Player {
-    private:
-        uint32_t Id;
-    public:
-        std::string Name;
-        CardContainer Inventory;
-        CardContainer Equiped;
+        void pop_and_move ( CardContainer* container ) {
+            Card* card = Cards.back();
+            Cards.pop_back();
+            container->push(card);
+        }
 };
 
 class Table : public CardContainer {
@@ -77,7 +75,6 @@ class Table : public CardContainer {
         std::random_device Rd;
         std::default_random_engine Rng;
     public:
-        std::vector<Player> Players;
         Deck TrapDoors;
         Deck Treasures;
 
@@ -85,13 +82,49 @@ class Table : public CardContainer {
             Rng = std::default_random_engine(Rd());
 
             for ( int i = 0 ; i < TRESH; i++ ) {
-                TrapDoors.add(Card(i));
+                Card card(i);
+                TrapDoors.push(&card);
             }
             for ( int i = TRESH ; i < CARDS; i++ ) {
-                Treasures.add(Card(i));
+                Card card(i);
+                Treasures.push(&card);
             }
 
             TrapDoors.shuffle(Rng);
             Treasures.shuffle(Rng);
+        }
+};
+
+// PLAYER CLASSES //
+
+class Player {
+    private:
+        uint32_t Pass;
+    public:
+        std::string Name;
+        CardContainer Inventory;
+        CardContainer Equiped;
+
+        Player ( uint32_t pass, std::string name )
+            : Pass(pass), Name(name) {}
+};
+
+class PlayerManager {
+    public:
+        std::vector<Player*> Players;
+
+        PlayerManager () {}
+
+        int join( uint32_t pass, std::string name ) {
+            int res = 0;
+            for ( Player* player : Players ) {
+                if ( player->Name == name ) {
+                    name = name+"_ЖалкаяПародия";
+                    res = 1;
+                }
+            }
+            Player new_player(pass, name);
+            Players.push_back(&new_player);
+            return res;
         }
 };
