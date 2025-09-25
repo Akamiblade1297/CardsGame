@@ -1,12 +1,19 @@
+#include <atomic>
 #include <iostream>
 #include <stdint.h>
+#include <stdio.h>
+#include <unistd.h>
 #include <string>
 #include <vector>
 #include <algorithm>
 #include <random>
+#include <thread>
+#include <mutex>
+#include <sys/socket.h>
 
 #define CARDS 170
 #define TRESH 95
+#define BUF   1024
 
 // CARDS CLASSES // 
 
@@ -16,10 +23,10 @@ class Card {
         uint8_t Number;
     public:
         bool Face;
-        static int X, Y, Rotation;
+        int X, Y, Rotation;
 
         explicit Card ( uint8_t num, bool face = true, int x = 0, int y = 0, int rot = 0 )
-            : Face(face), Trap(num<TRESH), Number(num) { setTransform(x, y, rot); }
+            : Face(face), Trap(num<TRESH), Number(num), X(x), Y(y), Rotation(rot) {}
 
         int getNumber () {
             return Number;
@@ -30,10 +37,10 @@ class Card {
         void flip () {
             Face = !Face;            
         }
-        void setTransform(int x, int y, int rot = Rotation) {
+        void setTransform(int x, int y, int rot = -1) {
             X = x;
             Y = y;
-            Rotation = rot;
+            if ( rot > 0 ) { Rotation = rot; }
         }
 };
 
@@ -95,36 +102,117 @@ class Table : public CardContainer {
         }
 };
 
+// WorkerQueue //
+
+class WorkerQueue {
+    private:
+        std::mutex QueueMutex;
+        std::vector<std::string> Queue;
+    public:
+        void push ( std::string task ) {
+            std::lock_guard<std::mutex> lock(QueueMutex);
+            Queue.push_back(task);
+        }
+        std::string pop () {
+            while ( Queue.empty() ) {}
+
+            std::lock_guard<std::mutex> lock(QueueMutex);
+            std::string task = Queue.back();
+            Queue.pop_back();
+            return task;
+        }
+};
+
 // PLAYER CLASSES //
 
 class Player {
     private:
         uint32_t Pass;
     public:
+        int ConnectionSocket;
         std::string Name;
         CardContainer Inventory;
         CardContainer Equiped;
 
-        Player ( uint32_t pass, std::string name )
-            : Pass(pass), Name(name) {}
+        Player ( uint32_t pass, std::string name, int socket )
+            : Pass(pass), Name(name), ConnectionSocket(socket) {}
+
+        bool auth ( uint32_t pass ) {
+            return ( Pass == pass );
+        }
 };
 
 class PlayerManager {
+    private:
+        std::mutex join_mutex;
+        static void receiver( Player* player, WorkerQueue* queue ) {
+            char buffer[BUF] = {0};
+            while ( true ) {
+                if ( read(player->ConnectionSocket, buffer, BUF) == 0 ) { break; }
+                queue->push(buffer);
+                std::fill(buffer, buffer+BUF, 0);
+            }
+        };
     public:
         std::vector<Player*> Players;
+        std::vector<std::thread*> Threads;
+        WorkerQueue* Queue;
 
-        PlayerManager () {}
+        PlayerManager (WorkerQueue* queue)
+            : Queue(queue) {}
 
-        int join( uint32_t pass, std::string name ) {
+        Player* playerById( int id ) {
+            if ( id <= 0 or id > Players.size() ) {
+                return nullptr;
+            } else {
+                return Players[id-1];
+            }
+        }
+        Player* playerByName( std::string name ) {
+            for ( Player* player : Players ) {
+                if ( player->Name == name ) {
+                    return player;
+                }
+            }
+            return nullptr;
+        }
+        Player* playerByPass( uint32_t pass ) {
+            for ( Player* player : Players ) {
+                if ( player->auth(pass) ) {
+                    return player;
+                }
+            }
+            return nullptr;
+        }
+        int playerId( Player* player ) {
+            for ( int i = 0 ; i < Players.size() ; i++ ) {
+                if ( Players[i] == player ) { return i+1; }
+            }
+            return -1;
+        }
+        int join( uint32_t pass, std::string name, int socket ) {
             int res = 0;
+            std::lock_guard<std::mutex> lock(join_mutex);
             for ( Player* player : Players ) {
                 if ( player->Name == name ) {
                     name = name+"_ЖалкаяПародия";
                     res = 1;
                 }
             }
-            Player new_player(pass, name);
+            Player new_player(pass, name, socket);
             Players.push_back(&new_player);
+
+            std::thread receiver_thread(receiver, &new_player, Queue);
+            receiver_thread.detach();
             return res;
+        }
+        int rejoin ( uint32_t pass, int socket ) {
+            Player* player = playerByPass(pass);
+            if ( player == nullptr ) {
+                return -1;
+            } else {
+                player->ConnectionSocket = socket;
+                return 0;
+            }
         }
 };
