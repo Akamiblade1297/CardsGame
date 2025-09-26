@@ -145,10 +145,10 @@ class Player {
 class PlayerManager {
     private:
         std::mutex join_mutex;
-        static void receiver( Player* player, WorkerQueue* queue ) {
+        static void receiver( int socket, WorkerQueue* queue ) {
             char buffer[BUF] = {0};
             while ( true ) {
-                if ( read(player->ConnectionSocket, buffer, BUF) == 0 ) { break; }
+                if ( read(socket, buffer, BUF) == 0 ) { std::cout << "EOF" << std::endl; return; }
                 queue->push(buffer);
                 std::fill(buffer, buffer+BUF, 0);
             }
@@ -199,10 +199,10 @@ class PlayerManager {
                     res = 1;
                 }
             }
-            Player new_player(pass, name, socket);
-            Players.push_back(&new_player);
+            Player* new_player = new Player(pass, name, socket);
+            Players.push_back(new_player);
 
-            std::thread receiver_thread(receiver, &new_player, Queue);
+            std::thread receiver_thread(receiver, socket, Queue);
             receiver_thread.detach();
             return res;
         }

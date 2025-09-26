@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <asm-generic/socket.h>
+#include <sstream>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -22,6 +23,18 @@ int addrlen = sizeof(address);
 int server;
 int reuse = 1;
 
+std::vector<std::string> split( char* str, char del ) {
+    std::vector<std::string> str_vec;
+    std::stringstream str_stream(str);
+    std::string s;
+    
+    while ( std::getline(str_stream, s, del) ) {
+        str_vec.push_back(s);
+    }
+
+    return str_vec;
+}
+
 void log_msg ( std::string log ) {
     std::cout << log << std::endl;
 }
@@ -31,14 +44,14 @@ void worker () {
         std::string task = queue.pop();
         log_msg("Task: "+task);
         
-        // Processing task(eg. "CHAT Hi!!", "WHISP Player2 Pss, hey")
+        // Processing task(eg. "SAY\nHi!!", "WSP\nPlayer2\nPss, hey")
     }
 }
 
 void establisher () {
-    std::string request;
     std::string name;
     std::string address_string;
+    char del = '\n';
     char buffer[CONN_REQ_LEN] = {0};
     struct sockaddr_in client_address;
     uint32_t pass;
@@ -49,15 +62,16 @@ void establisher () {
         std::fill(buffer, buffer+CONN_REQ_LEN, 0);
         inet_ntop(AF_INET, &(client_address.sin_addr), buffer, INET_ADDRSTRLEN);
         address_string = buffer;
-        log_msg("INFO: "+address_string+" connected to server");
+        log_msg(address_string+" connected to server");
 
         std::fill(buffer, buffer+CONN_REQ_LEN, 0);
         read(client, buffer, CONN_REQ_LEN);
-        request = buffer;
 
-        if ( request.substr(0,4) == "JOIN" ) {
-            name = request.substr(10);
-            std::memcpy(&pass, request.substr(5,4).data(), 4);
+        std::vector<std::string> request = split(buffer, del);
+
+        if ( request.size() == 3 && request[0] == "JOIN") {
+            std::memcpy(&pass, request[1].data(), 4);
+            name = request[2];
             switch ( playerMgr.join(pass, name, client) ) {
                 case 0:
                     log_msg(address_string+" assigned as "+name);
@@ -71,8 +85,9 @@ void establisher () {
                     send(client, buffer, 7, 0);
                     break;
             }
-        } else if ( request.substr(0,6) == "REJOIN" ) { 
-            std::memcpy(&pass, request.substr(7,4).data(), 4);
+        } else if ( request.size() == 2 && request[0] == "REJOIN" ) { 
+            std::memcpy(&pass, request[1].data(), 4);
+            log_msg(std::to_string(pass));
             Player* player = playerMgr.playerByPass(pass);
             if ( player == nullptr ) {
                 log_msg(address_string+" failed to rejoin");
