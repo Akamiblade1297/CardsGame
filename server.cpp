@@ -1,19 +1,4 @@
-#include <algorithm>
-#include <asm-generic/socket.h>
-#include <sstream>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <iostream>
-#include <ostream>
-#include <string>
-#include <cstring>
-#include <thread>
-#include <unistd.h>
 #include "main.h"
-
-#define PORT 8494
-#define CONN_REQ_LEN 25
 
 Table table;
 WorkerQueue queue;
@@ -22,6 +7,7 @@ struct sockaddr_in address;
 int addrlen = sizeof(address);
 int server;
 int reuse = 1;
+char del = '\n';
 
 std::vector<std::string> split( char* str, char del ) {
     std::vector<std::string> str_vec;
@@ -35,23 +21,89 @@ std::vector<std::string> split( char* str, char del ) {
     return str_vec;
 }
 
+int transformCard(Player* player, Card* card, std::string x, std::string y) { 
+    try {
+        card->transform(std::stoi(x), std::stoi(y));
+        playerMgr.sendPlayer(player, "OK");
+        return 0;
+    } catch ( std::invalid_argument ) {
+        playerMgr.sendPlayer(player, "NOT NUMBER");
+        return -1;
+    } catch ( std::out_of_range ) {
+        playerMgr.sendPlayer(player, "OUT OF RANGE");
+        return -1;
+    }
+}
+
+int transformContainer(Player* player, CardContainer* container, std::string i, std::string x, std::string y) { 
+    try {
+        if ( container->transform(std::stoi(i), std::stoi(x), std::stoi(y)) == 0 ) {
+            playerMgr.sendPlayer(player, "OK");
+            return 0;
+        } else {
+            playerMgr.sendPlayer(player, "NOT FOUND");
+            return -1;
+        }
+    } catch ( std::invalid_argument ) {
+        playerMgr.sendPlayer(player, "NOT NUMBER");
+        return -1;
+    } catch ( std::out_of_range ) {
+        playerMgr.sendPlayer(player, "OUT OF RANGE");
+        return -1;
+    }
+}
+
 void log_msg ( std::string log ) {
     std::cout << log << std::endl;
 }
 
 void worker () {
+    char buffer[BUF];
     while ( true ) {
-        std::string task = queue.pop();
-        log_msg("Task: "+task);
+        std::fill(buffer, buffer+BUF, 0);
+        auto [player, req] = queue.pop();
+        strcpy(buffer, req.c_str());
+        std::vector<std::string> request = split(buffer, del);
         
-        // Processing task(eg. "SAY\nHi!!", "WSP\nPlayer2\nPss, hey")
+        if ( request.size() == 2 && request[0] == "CHAT" ) { // CHAT <message>
+            std::string temp = "CHAT";
+            playerMgr.sendAll(temp + del + player->Name + del + request[1]);
+            log_msg(player->Name+": "+request[1]);
+        } else if ( request.size() == 3 && request[0] == "WHISPER" ) { // WHISPER <player> <message>
+            Player* player_dest = playerMgr.playerByName(request[1]);
+            std::string temp = "WHISPER";
+            if ( playerMgr.sendName(request[1], temp + del + player->Name + del + request[2]) == 0 ) {
+                playerMgr.sendPlayer(player, "OK");
+                log_msg(player->Name+" -> "+request[1]+": "+request[2]);
+            } else {
+                playerMgr.sendPlayer(player, "NOT FOUND");
+            }
+        } else if ( request.size() == 5 && request[0] == "DECK" ) { // DECK <src> <dest> <x> <y>
+            if ( request[1] == "TRAPDOORS" and request[2] == "TABLE" ) {
+                Card* card = table.TrapDoors.pop_and_move(&table);
+                if ( card == nullptr ) {
+                    playerMgr.sendPlayer(player, "EMPTY");
+                } else if ( transformCard(player, card, request[3], request[4]) == 0 ) {
+                    log_msg(player->Name+" moved card_"+std::to_string(card->Number)+" from TrapDoors Deck to Table (X: "+request[3]+", Y: "+request[4]+")");
+                }
+            }
+        } else if ( request.size() == 6 && request[0] == "MOVE" ) { // MOVE <src> <card> <dest> <x> <y>
+            if ( request[1] == "TABLE" and request[3] == "TABLE" ) {
+                try {
+                    if ( table.transform(std::stoi(request[2]), std::stoi(request[4]), std::stoi(request[5])) == 0 ) {
+                         
+                    }
+                } catch (std::invalid_argument&) {
+                    
+                }
+            }
+        }
     }
 }
 
 void establisher () {
     std::string name;
     std::string address_string;
-    char del = '\n';
     char buffer[CONN_REQ_LEN] = {0};
     struct sockaddr_in client_address;
     uint32_t pass;
@@ -100,6 +152,11 @@ void establisher () {
                 strcpy(buffer, "OK");
                 send(client, buffer, 2, 0);
             }
+        } else {
+            log_msg(address_string+" sent unkown command: "+buffer);
+            strcpy(buffer, "UNKNOWN");
+            send(client, buffer, 7, 0);
+            close(client);
         }
         std::fill(buffer, buffer+CONN_REQ_LEN, 0);
     }

@@ -4,40 +4,40 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string>
+#include <cstring>
+#include <sstream>
 #include <vector>
+#include <tuple>
 #include <algorithm>
 #include <random>
 #include <thread>
 #include <mutex>
 #include <sys/socket.h>
+#include <arpa/inet.h>
 
+#define CONN_REQ_LEN 25
+#define BUF   1024
 #define CARDS 170
 #define TRESH 95
-#define BUF   1024
+#define PORT  8494
+
 
 // CARDS CLASSES // 
 
 class Card {
-    protected:
-        bool Trap;
-        uint8_t Number;
     public:
+        uint8_t Number;
+        bool Trap;
         bool Face;
         int X, Y, Rotation;
 
         explicit Card ( uint8_t num, bool face = true, int x = 0, int y = 0, int rot = 0 )
             : Face(face), Trap(num<TRESH), Number(num), X(x), Y(y), Rotation(rot) {}
 
-        int getNumber () {
-            return Number;
-        }
-        bool isTrap () {
-            return Trap;
-        }
         void flip () {
             Face = !Face;            
         }
-        void setTransform(int x, int y, int rot = -1) {
+        void transform( int x, int y, int rot = -1 ) {
             X = x;
             Y = y;
             if ( rot > 0 ) { Rotation = rot; }
@@ -55,10 +55,17 @@ class CardContainer {
         void push ( Card* card ) {
             Cards.push_back(card);
         }
-        void move ( int i, CardContainer* container ) {
+        int move ( int i, CardContainer* container ) {
+            if ( i < 0 || i >= Cards.size() ) { return -1; }
             Card* card = Cards[i];
             Cards.erase(Cards.begin()+i);
             container->push(card);
+            return 0;
+        }
+        int transform ( int i, int x, int y, int rot = -1 ) {
+            if ( i < 0 || i >= Cards.size() ) { return -1; }
+            Cards[i]->transform(x, y, rot);
+            return 0;
         }
 };
 
@@ -70,10 +77,13 @@ class Deck : public CardContainer {
         void shuffle (std::default_random_engine rng) {
             std::shuffle(Cards.begin(), Cards.end(), rng);
         }
-        void pop_and_move ( CardContainer* container ) {
+        Card* pop_and_move ( CardContainer* container ) {
+            if ( Cards.empty() ) { return nullptr; }
+
             Card* card = Cards.back();
             Cards.pop_back();
             container->push(card);
+            return card;
         }
 };
 
@@ -89,37 +99,23 @@ class Table : public CardContainer {
             Rng = std::default_random_engine(Rd());
 
             for ( int i = 0 ; i < TRESH; i++ ) {
-                Card card(i);
-                TrapDoors.push(&card);
+                Card* card = new Card(i);
+                TrapDoors.push(card);
             }
             for ( int i = TRESH ; i < CARDS; i++ ) {
-                Card card(i);
-                Treasures.push(&card);
+                Card* card = new Card(i);
+                Treasures.push(card);
             }
+            
+            shuffleTrapDoors();
+            shuffleTreasures();
+        }
 
+        void shuffleTrapDoors() {
             TrapDoors.shuffle(Rng);
+        }
+        void shuffleTreasures() {
             Treasures.shuffle(Rng);
-        }
-};
-
-// WorkerQueue //
-
-class WorkerQueue {
-    private:
-        std::mutex QueueMutex;
-        std::vector<std::string> Queue;
-    public:
-        void push ( std::string task ) {
-            std::lock_guard<std::mutex> lock(QueueMutex);
-            Queue.push_back(task);
-        }
-        std::string pop () {
-            while ( Queue.empty() ) {}
-
-            std::lock_guard<std::mutex> lock(QueueMutex);
-            std::string task = Queue.back();
-            Queue.pop_back();
-            return task;
         }
 };
 
@@ -142,14 +138,36 @@ class Player {
         }
 };
 
+// WorkerQueue //
+
+class WorkerQueue {
+    private:
+        std::mutex QueueMutex;
+        std::vector<std::tuple<Player*, std::string>> Queue;
+    public:
+        void push ( Player* player, std::string request ) {
+            std::lock_guard<std::mutex> lock(QueueMutex);
+            std::tuple<Player*, std::string> task(player, request);
+            Queue.push_back(task);
+        }
+        std::tuple<Player*, std::string> pop () {
+            while ( Queue.empty() ) {}
+
+            std::lock_guard<std::mutex> lock(QueueMutex);
+            std::tuple<Player*, std::string> task = Queue.back();
+            Queue.pop_back();
+            return task;
+        }
+};
+
 class PlayerManager {
     private:
         std::mutex join_mutex;
-        static void receiver( int socket, WorkerQueue* queue ) {
+        static void receiver( Player* player, WorkerQueue* queue ) {
             char buffer[BUF] = {0};
             while ( true ) {
-                if ( read(socket, buffer, BUF) == 0 ) { std::cout << "EOF" << std::endl; return; }
-                queue->push(buffer);
+                if ( read(player->ConnectionSocket, buffer, BUF) == 0 ) { std::cout << "EOF" << std::endl; return; }
+                queue->push(player, buffer);
                 std::fill(buffer, buffer+BUF, 0);
             }
         };
@@ -202,7 +220,7 @@ class PlayerManager {
             Player* new_player = new Player(pass, name, socket);
             Players.push_back(new_player);
 
-            std::thread receiver_thread(receiver, socket, Queue);
+            std::thread receiver_thread(receiver, new_player, Queue);
             receiver_thread.detach();
             return res;
         }
@@ -213,6 +231,30 @@ class PlayerManager {
             } else {
                 player->ConnectionSocket = socket;
                 return 0;
+            }
+        }
+        int sendName ( std::string name, std::string message ) {
+            Player* player = playerByName(name);
+            if ( player == nullptr ) { return -1; }
+
+            int n = message.length();
+            char buffer[n];
+            strcpy(buffer, message.data());
+            send(player->ConnectionSocket, buffer, n, 0);
+            return 0;
+        }
+        void sendPlayer( Player* player, std::string message ) {
+            int n = message.length();
+            char buffer[n];
+            strcpy(buffer, message.data());
+            send(player->ConnectionSocket, buffer, n, 0);
+        }
+        void sendAll ( std::string message ) {
+            int n = message.length();
+            char buffer[n];
+            strcpy(buffer, message.data());
+            for ( Player* player : Players ) {
+                send(player->ConnectionSocket, buffer, n, 0);
             }
         }
 };
