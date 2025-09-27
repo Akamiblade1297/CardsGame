@@ -1,4 +1,5 @@
 #include "main.h"
+#include <string>
 
 Table table;
 
@@ -8,9 +9,7 @@ CardContainer* containerByName ( std::string name, Player* player ) {
     } else if ( name == "TREASURES" ) {
         return &table.Treasures;
     } else if ( name == "TRAPDOORS" ) {
-        return &table.TrapDoors;
-    } else if ( name == "INVENTORY" ) {
-        return &player->Inventory;
+        return &table.TrapDoors; } else if ( name == "INVENTORY" ) { return &player->Inventory;
     } else if ( name == "EQUIPPED" ) {
         return &player->Equiped;
     } else {
@@ -31,7 +30,6 @@ Deck* deckByName ( std::string name ) {
 CardContainer* spatialByName ( std::string name, Player* player ) {
     if ( name == "TABLE" ) {
         return &table;
-        return &table.TrapDoors;
     } else if ( name == "INVENTORY" ) {
         return &player->Inventory;
     } else if ( name == "EQUIPPED" ) {
@@ -41,14 +39,21 @@ CardContainer* spatialByName ( std::string name, Player* player ) {
     }
 }
 
-WorkerQueue queue;
 Log logger("logs/log");
+WorkerQueue queue;
 PlayerManager playerMgr(&queue, &logger);
 struct sockaddr_in address;
 int addrlen = sizeof(address);
 int server;
 int reuse = 1;
 char del = '\n';
+
+std::string join ( const std::vector<std::string>& vec, const std::string& del ) {
+     return std::accumulate(vec.begin(), vec.end(), std::string{},
+            [del](const std::string& a, const std::string& b) {
+                return a + (a.empty() ? "" : del) + b;
+            });
+}
 
 std::vector<std::string> split( char* str, char del ) {
     std::vector<std::string> str_vec;
@@ -164,6 +169,53 @@ void worker () {
                 }
             }
             logger.log(player->Name+" moved Card_"+std::to_string(card->Number)+" from "+request[1]+" to "+request[3]+" (X: "+request[4]+", Y: "+request[5]+")");
+        } else if (  request.size() == 2 && request[0] == "SEE" ) { // SEE <container/player>
+            CardContainer* container = spatialByName(request[1], player);
+            if ( container == nullptr ) {
+                Player* plr = playerMgr.playerByName(request[1]);
+                if ( plr == nullptr ) {
+                    player->sendMsg("NOT FOUND");
+                    continue;
+                } else {
+                    container = &plr->Equiped;
+                }
+            }
+            std::vector<std::string> cards;
+            for ( Card* card : container->Cards ) {
+                std::string id;
+                if ( card->Face ) {
+                    id = std::to_string(card->Number);
+                } else if ( card->Trap ) {
+                    id = "TRAP";
+                } else {
+                    id = "TRES";
+                }
+                cards.push_back(id+' '+std::to_string(card->X)+' '+std::to_string(card->Y));
+            }
+            std::string temp = "OK";
+            std::string response = temp + del + join(cards, std::string(1,del));
+            player->sendMsg(response);
+        } else if ( request.size() == 3 && request[0] == "FLIP" ) { // FLIP <container> <card>
+            CardContainer* container = spatialByName(request[1], player);
+            int i;
+            try {
+                i = std::stoi(request[2]);
+            } catch ( std::out_of_range ) {
+                player->sendMsg("OUT OF RANGE");
+                continue;
+            } catch ( std::invalid_argument ) {
+                player->sendMsg("NOT A NUMBER");
+                continue;
+            }
+            Card* card = container->card(i);
+            if ( card == nullptr ) {
+                player->sendMsg("OUT OF RANGE");
+            } else {
+                card->flip();
+                player->sendMsg("OK");
+            }
+        } else {
+            player->sendMsg("UNKNOWN");
         }
     }
 }

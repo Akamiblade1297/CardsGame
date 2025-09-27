@@ -1,4 +1,4 @@
-#include <atomic>
+#include <numeric>
 #include <iostream>
 #include <stdint.h>
 #include <stdio.h>
@@ -8,10 +8,8 @@
 #include <sstream>
 #include <fstream>
 #include <vector>
-#include <unordered_map>
 #include <tuple>
 #include <algorithm>
-#include <bits/stdc++.h>
 #include <random>
 #include <thread>
 #include <mutex>
@@ -80,6 +78,10 @@ class CardContainer {
             Cards.erase(Cards.begin()+i);
             container->push(card);
             return card;
+        }
+        Card* card ( int i ) {
+            if ( i < 0 || i >= Cards.size() ) { return nullptr; }
+            return Cards[i];
         }
         int transform ( int i, int x, int y, int rot = -1 ) {
             if ( i < 0 || i >= Cards.size() ) { return -1; }
