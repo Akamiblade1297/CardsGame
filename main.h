@@ -6,9 +6,12 @@
 #include <string>
 #include <cstring>
 #include <sstream>
+#include <fstream>
 #include <vector>
+#include <unordered_map>
 #include <tuple>
 #include <algorithm>
+#include <bits/stdc++.h>
 #include <random>
 #include <thread>
 #include <mutex>
@@ -21,6 +24,22 @@
 #define TRESH 95
 #define PORT  8494
 
+// LOGGING SYSTEM //
+
+class Log {
+    private:
+        std::ofstream logs;
+
+    public:
+        Log ( std::string path ) 
+            : logs(path) {}
+
+        void operator()( std::string msg ) {
+            std::cout << msg << std::endl;
+            logs << msg << std::endl;
+        }
+        void log( std::string msg ) { operator()(msg); }
+};
 
 // CARDS CLASSES // 
 
@@ -55,12 +74,12 @@ class CardContainer {
         void push ( Card* card ) {
             Cards.push_back(card);
         }
-        int move ( int i, CardContainer* container ) {
-            if ( i < 0 || i >= Cards.size() ) { return -1; }
+        Card* move ( int i, CardContainer* container ) {
+            if ( i < 0 || i >= Cards.size() ) { return nullptr; }
             Card* card = Cards[i];
             Cards.erase(Cards.begin()+i);
             container->push(card);
-            return 0;
+            return card;
         }
         int transform ( int i, int x, int y, int rot = -1 ) {
             if ( i < 0 || i >= Cards.size() ) { return -1; }
@@ -136,6 +155,12 @@ class Player {
         bool auth ( uint32_t pass ) {
             return ( Pass == pass );
         }
+        void sendMsg( std::string message ) {
+            int n = message.length();
+            char buffer[n];
+            strcpy(buffer, message.data());
+            send(ConnectionSocket, buffer, n, 0);
+        }
 };
 
 // WorkerQueue //
@@ -162,22 +187,23 @@ class WorkerQueue {
 
 class PlayerManager {
     private:
+        WorkerQueue* Queue;
+        Log* Logger;
         std::mutex join_mutex;
-        static void receiver( Player* player, WorkerQueue* queue ) {
+
+        static void receiver( Player* player, WorkerQueue* queue, Log* logger ) {
             char buffer[BUF] = {0};
             while ( true ) {
-                if ( read(player->ConnectionSocket, buffer, BUF) == 0 ) { std::cout << "EOF" << std::endl; return; }
+                if ( read(player->ConnectionSocket, buffer, BUF) == 0 ) { logger->log(player->Name+" disconnected"); break; }
                 queue->push(player, buffer);
                 std::fill(buffer, buffer+BUF, 0);
             }
         };
     public:
         std::vector<Player*> Players;
-        std::vector<std::thread*> Threads;
-        WorkerQueue* Queue;
 
-        PlayerManager (WorkerQueue* queue)
-            : Queue(queue) {}
+        PlayerManager ( WorkerQueue* queue, Log* logger )
+            : Queue(queue), Logger(logger) {}
 
         Player* playerById( int id ) {
             if ( id <= 0 or id > Players.size() ) {
@@ -220,34 +246,27 @@ class PlayerManager {
             Player* new_player = new Player(pass, name, socket);
             Players.push_back(new_player);
 
-            std::thread receiver_thread(receiver, new_player, Queue);
+            std::thread receiver_thread(receiver, new_player, Queue, Logger);
             receiver_thread.detach();
             return res;
         }
-        int rejoin ( uint32_t pass, int socket ) {
+        Player* rejoin ( uint32_t pass, int socket ) {
             Player* player = playerByPass(pass);
             if ( player == nullptr ) {
-                return -1;
+                return nullptr;
             } else {
                 player->ConnectionSocket = socket;
-                return 0;
+                std::thread receiver_thread(receiver, player, Queue, Logger);
+                receiver_thread.detach();
+                return player;
             }
         }
-        int sendName ( std::string name, std::string message ) {
+        int sendByName ( std::string name, std::string message ) {
             Player* player = playerByName(name);
             if ( player == nullptr ) { return -1; }
 
-            int n = message.length();
-            char buffer[n];
-            strcpy(buffer, message.data());
-            send(player->ConnectionSocket, buffer, n, 0);
+            player->sendMsg(message);
             return 0;
-        }
-        void sendPlayer( Player* player, std::string message ) {
-            int n = message.length();
-            char buffer[n];
-            strcpy(buffer, message.data());
-            send(player->ConnectionSocket, buffer, n, 0);
         }
         void sendAll ( std::string message ) {
             int n = message.length();
