@@ -2,6 +2,7 @@
 #include <string>
 
 Table table;
+std::vector<std::string> unvisibles = {"TREASURES", "TRAPDOORS", "INVENTORY"};
 
 CardContainer* containerByName ( std::string name, Player* player ) {
     if ( name == "TABLE" ) {
@@ -47,6 +48,11 @@ int addrlen = sizeof(address);
 int server;
 int reuse = 1;
 char del = '\n';
+
+bool isVisible( std::string containerName ) {
+    if ( containerName == "TABLE" || containerName == "EQUIPPED" ) { return true; }
+    return false;
+}
 
 std::string join ( const std::vector<std::string>& vec, const std::string& del ) {
      return std::accumulate(vec.begin(), vec.end(), std::string{},
@@ -120,7 +126,7 @@ void worker () {
             } else {
                 player->sendMsg("NOT FOUND");
             }
-        } else if ( request.size() == 5 && request[0] == "DECK" ) { // DECK <src> <dest> <x> <y>
+        } else if ( request.size() == 5 && request[0] == "DECK" ) { // DECK <deck src> <dest> <x> <y>
             Deck* src           = deckByName(request[1]);
             CardContainer* dest = containerByName(request[2], player);
             Card* card = nullptr;
@@ -132,12 +138,27 @@ void worker () {
                     player->sendMsg("EMPTY");
                 } else if ( transformCard(player, card, request[3], request[4]) == 0 ) {
                     logger.log(player->Name+" moved Card_"+std::to_string(card->Number)+" from "+request[1]+" to "+request[2]+" (X: "+request[3]+", Y: "+request[4]+")");
+                    std::string temp = "NOTIFY";
+                    std::string notification = temp+del+"DECK"+del+player->Name+del+request[1]+del+request[2];
+                    if ( isVisible(request[2]) ) { notification = notification + del + ( card->Face ? std::to_string(card->Number) : ( card->Trap ? "TRAP" : "TRES" ) ); }
+                    playerMgr.sendAll(notification);
                 }
             }
-        } else if ( ( request.size() == 6 ) && request[0] == "MOVE" ) { // MOVE <src> <card> <dest> <x> <y>
+        } else if ( ( request.size() == 6 ) && request[0] == "MOVE" ) { // MOVE <spatial src> <card_id> <dest> <x> <y>
             CardContainer* src  = spatialByName(request[1], player);
             CardContainer* dest = containerByName(request[3], player);
             Card* card;
+
+            int i;
+            try {
+                i = std::stoi(request[2]);
+            } catch ( std::out_of_range ) {
+                player->sendMsg("OUT OF RANGE");
+                continue;
+            } catch ( std::invalid_argument ) {
+                player->sendMsg("NOT A NUMBER");
+                continue;
+            }
 
             if ( src == nullptr || dest == nullptr ) {
                 player->sendMsg("ERROR");
@@ -147,19 +168,9 @@ void worker () {
                 if ( transformContainer(player, src, request[2], request[4], request[5]) != 0 ) {
                     continue;
                 } else {
-                    card = src->Cards[std::stoi(request[2])];
+                    card = src->card(i);
                 }
             } else {
-                int i;
-                try {
-                    i = std::stoi(request[2]);
-                } catch ( std::out_of_range ) {
-                    player->sendMsg("OUT OF RANGE");
-                    continue;
-                } catch ( std::invalid_argument ) {
-                    player->sendMsg("NOT A NUMBER");
-                    continue;
-                }
                 card = src->move(i, dest);
                 if ( card == nullptr ) {
                     player->sendMsg("INVALID CARD");
@@ -169,7 +180,9 @@ void worker () {
                 }
             }
             logger.log(player->Name+" moved Card_"+std::to_string(card->Number)+" from "+request[1]+" to "+request[3]+" (X: "+request[4]+", Y: "+request[5]+")");
-        } else if (  request.size() == 2 && request[0] == "SEE" ) { // SEE <container/player>
+            std::string temp = "NOTIFY";
+            playerMgr.sendAll(temp+del+req);
+        } else if (  request.size() == 2 && request[0] == "SEE" ) { // SEE <spatial/player>
             CardContainer* container = spatialByName(request[1], player);
             if ( container == nullptr ) {
                 Player* plr = playerMgr.playerByName(request[1]);
@@ -186,6 +199,30 @@ void worker () {
                 if ( card->Face ) {
                     id = std::to_string(card->Number);
                 } else if ( card->Trap ) {
+                    id = "TRAP";
+                } else {
+                    id = "TRES";
+                }
+                cards.push_back(id+' '+std::to_string(card->X)+' '+std::to_string(card->Y));
+            }
+            std::string temp = "OK";
+            std::string response = temp + del + join(cards, std::string(1,del));
+            player->sendMsg(response);
+        } else if ( request.size() == 2 && request[0] == "LIST" ) { // LIST <deck/player>
+            CardContainer* container = deckByName(request[1]);
+            if ( container == nullptr ) {
+                Player* plr = playerMgr.playerByName(request[1]);
+                if ( plr == nullptr ) {
+                    player->sendMsg("NOT FOUND");
+                    continue;
+                } else {
+                    container = &plr->Inventory;
+                }
+            }
+            std::vector<std::string> cards;
+            for ( Card* card : container->Cards ) {
+                std::string id;
+                if ( card->Trap ) {
                     id = "TRAP";
                 } else {
                     id = "TRES";
@@ -213,6 +250,11 @@ void worker () {
             } else {
                 card->flip();
                 player->sendMsg("OK");
+                logger.log(player->Name+" flipped Card_"+std::to_string(card->Number)+" on "+request[1]);
+                if ( isVisible(request[1]) ) {
+                    std::string temp = "NOTIFY";
+                    playerMgr.sendAll(temp+del+player->Name+del+req);
+                }
             }
         } else {
             player->sendMsg("UNKNOWN");
