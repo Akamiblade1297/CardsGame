@@ -2,6 +2,7 @@
 #include <cstring>
 #include <stdexcept>
 #include <string>
+#include <sys/select.h>
 
 Table table;
 
@@ -346,10 +347,17 @@ void establisher () {
     std::string address_string;
     char buffer[CONN_REQ_LEN] = {0};
     struct sockaddr_in client_address;
+    struct timeval timeout;
+    fd_set set;
     uint32_t pass;
     int client;
     while ( true ) {
+        std::fill(buffer, buffer+CONN_REQ_LEN, 0);
+        timeout.tv_sec = 5; timeout.tv_usec = 0;
+
         client = accept(server, (struct sockaddr*)&client_address, (socklen_t*)&addrlen);
+        FD_ZERO(&set);
+        FD_SET(client, &set);
 
         std::fill(buffer, buffer+CONN_REQ_LEN, 0);
         inet_ntop(AF_INET, &(client_address.sin_addr), buffer, INET_ADDRSTRLEN);
@@ -358,6 +366,19 @@ void establisher () {
         logger.log(address_string+" connected");
 
         std::fill(buffer, buffer+CONN_REQ_LEN, 0);
+        int res = select(client+1, &set, NULL, NULL, &timeout);
+        switch ( res ){
+            case 0:
+                logger.log(address_string+" connection timed out");
+                strcpy(buffer, "TIMEOUT");
+                send(client, buffer, 7, 0);
+                close(client);
+                continue;
+            case -1:
+                logger.log("Unexpected error occured on "+address_string+" connection");
+                close(client);
+                continue;
+        }
         read(client, buffer, CONN_REQ_LEN);
 
         std::vector<std::string> request = split(buffer, DEL);
@@ -366,17 +387,23 @@ void establisher () {
             std::memcpy(&pass, request[1].data(), 4);
             name = request[2];
             switch ( playerMgr.join(pass, name, client) ) {
-                case 0:
+                case 0: {
                     logger.log(address_string+" assigned as "+name);
                     strcpy(buffer, "OK");
                     send(client, buffer, 2, 0);
+                    std::string temp = "JOIN";
+                    playerMgr.sendAll(temp+DEL+name);
                     break;
-                case 1:
+                }
+                case 1: {
                     Player* player = playerMgr.playerByPass(pass);
                     logger.log(address_string+" assigned as "+player->Name);
                     strcpy(buffer, "RENAMED");
                     send(client, buffer, 7, 0);
+                    std::string temp = "JOIN";
+                    playerMgr.sendAll(temp+DEL+player->Name);
                     break;
+                }
             }
         } else if ( request.size() == 2 && request[0] == "REJOIN" ) { 
             std::memcpy(&pass, request[1].data(), 4);
@@ -395,7 +422,6 @@ void establisher () {
             send(client, buffer, 7, 0);
             close(client);
         }
-        std::fill(buffer, buffer+CONN_REQ_LEN, 0);
     }
 }
 

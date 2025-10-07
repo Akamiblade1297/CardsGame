@@ -15,6 +15,7 @@
 #include <thread>
 #include <mutex>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <arpa/inet.h>
 
 #define CONN_REQ_LEN 25
@@ -254,8 +255,6 @@ class PlayerManager {
             std::thread receiver_thread(receiver, new_player, Queue, Logger);
             receiver_thread.detach();
 
-            std::string temp = "JOIN";
-            sendAll(temp+DEL+new_player->Name);
             return res;
         }
         Player* rejoin ( uint32_t pass, int socket ) {
@@ -266,9 +265,6 @@ class PlayerManager {
                 player->ConnectionSocket = socket;
                 std::thread receiver_thread(receiver, player, Queue, Logger);
                 receiver_thread.detach();
-
-                std::string temp = "REJOIN";
-                sendAll(temp+DEL+player->Name);
                 return player;
             }
         }
