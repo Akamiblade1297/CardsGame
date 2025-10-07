@@ -22,6 +22,7 @@
 #define CARDS 170
 #define TRESH 95
 #define PORT  8494
+#define DEL   '\n'
 
 // LOGGING SYSTEM //
 
@@ -163,9 +164,7 @@ class Player {
         }
         void sendMsg( std::string message ) {
             int n = message.length();
-            char buffer[n];
-            strcpy(buffer, message.data());
-            send(ConnectionSocket, buffer, n, 0);
+            send(ConnectionSocket, message.data(), n, 0);
         }
 };
 
@@ -254,6 +253,9 @@ class PlayerManager {
 
             std::thread receiver_thread(receiver, new_player, Queue, Logger);
             receiver_thread.detach();
+
+            std::string temp = "JOIN";
+            sendAll(temp+DEL+new_player->Name);
             return res;
         }
         Player* rejoin ( uint32_t pass, int socket ) {
@@ -264,6 +266,9 @@ class PlayerManager {
                 player->ConnectionSocket = socket;
                 std::thread receiver_thread(receiver, player, Queue, Logger);
                 receiver_thread.detach();
+
+                std::string temp = "REJOIN";
+                sendAll(temp+DEL+player->Name);
                 return player;
             }
         }
@@ -276,10 +281,8 @@ class PlayerManager {
         }
         void sendAll ( std::string message ) {
             int n = message.length();
-            char buffer[n];
-            strcpy(buffer, message.data());
             for ( Player* player : Players ) {
-                send(player->ConnectionSocket, buffer, n, 0);
+                send(player->ConnectionSocket, message.data(), n, 0);
             }
         }
 };
