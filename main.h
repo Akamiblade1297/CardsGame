@@ -149,6 +149,9 @@ class Player {
     public:
         int ConnectionSocket;
         std::string Name;
+        int Level;
+        int Power;
+        int Gold;
         CardContainer Inventory;
         CardContainer Equiped;
 

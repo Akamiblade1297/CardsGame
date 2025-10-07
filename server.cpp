@@ -1,8 +1,30 @@
 #include "main.h"
+#include <cstring>
+#include <stdexcept>
 #include <string>
 
 Table table;
-std::vector<std::string> unvisibles = {"TREASURES", "TRAPDOORS", "INVENTORY"};
+
+bool isVisible( std::string containerName ) {
+    if ( containerName == "TABLE" || containerName == "EQUIPPED" ) { return true; }
+    return false;
+}
+
+std::string* sStatByName ( std::string name, Player* player ) {
+    return nullptr;
+}
+
+int* iStatByName ( std::string name, Player* player ) {
+    if ( name == "LEVEL" ) {
+        return &player->Level;
+    } else if ( name == "POWER" ) {
+        return &player->Power;
+    } else if ( name == "GOLD" ) {
+        return &player->Gold;
+    } else {
+        return nullptr;
+    }
+}
 
 CardContainer* containerByName ( std::string name, Player* player ) {
     if ( name == "TABLE" ) {
@@ -10,7 +32,9 @@ CardContainer* containerByName ( std::string name, Player* player ) {
     } else if ( name == "TREASURES" ) {
         return &table.Treasures;
     } else if ( name == "TRAPDOORS" ) {
-        return &table.TrapDoors; } else if ( name == "INVENTORY" ) { return &player->Inventory;
+        return &table.TrapDoors;
+    } else if ( name == "INVENTORY" ) {
+        return &player->Inventory;
     } else if ( name == "EQUIPPED" ) {
         return &player->Equiped;
     } else {
@@ -41,6 +65,7 @@ CardContainer* spatialByName ( std::string name, Player* player ) {
 }
 
 Log logger("logs/log");
+// bool verbose = false;
 WorkerQueue queue;
 PlayerManager playerMgr(&queue, &logger);
 struct sockaddr_in address;
@@ -49,10 +74,9 @@ int server;
 int reuse = 1;
 char del = '\n';
 
-bool isVisible( std::string containerName ) {
-    if ( containerName == "TABLE" || containerName == "EQUIPPED" ) { return true; }
-    return false;
-}
+// void verb ( std::string msg ) {
+//     if ( verbose ) std::cout << msg << std::endl;
+// }
 
 std::string join ( const std::vector<std::string>& vec, const std::string& del ) {
      return std::accumulate(vec.begin(), vec.end(), std::string{},
@@ -182,6 +206,73 @@ void worker () {
             logger.log(player->Name+" moved Card_"+std::to_string(card->Number)+" from "+request[1]+" to "+request[3]+" (X: "+request[4]+", Y: "+request[5]+")");
             std::string temp = "NOTIFY";
             playerMgr.sendAll(temp+del+req);
+        } else if ( request.size() == 3 && request[0] == "FLIP" ) { // FLIP <container> <card>
+            CardContainer* container = spatialByName(request[1], player);
+
+            if ( container == nullptr ) {
+                player->sendMsg("NOT FOUND");
+                continue;
+            }
+
+            int i;
+            try {
+                i = std::stoi(request[2]);
+            } catch ( std::out_of_range ) {
+                player->sendMsg("OUT OF RANGE");
+                continue;
+            } catch ( std::invalid_argument ) {
+                player->sendMsg("NOT A NUMBER");
+                continue;
+            }
+
+            Card* card = container->card(i);
+            if ( card == nullptr ) {
+                player->sendMsg("OUT OF RANGE");
+            } else {
+                card->flip();
+                player->sendMsg("OK");
+                logger.log(player->Name+" flipped Card_"+std::to_string(card->Number)+" on "+request[1]);
+                if ( isVisible(request[1]) ) {
+                    std::string temp = "NOTIFY";
+                    playerMgr.sendAll(temp+del+player->Name+del+req);
+                }
+            }
+        } else if ( request.size() == 3 && request[0] == "SET" ) { // SET <stat> <value>
+            std::string* sStat = sStatByName(request[1], player);
+            int* iStat = iStatByName(request[1], player);
+            if ( player == nullptr ) {
+                player->sendMsg("NOT FOUND");
+                continue;
+            }
+            if ( sStat == nullptr ) {
+                if ( iStat == nullptr ) {
+                    player->sendMsg("NOT FOUND");
+                } else {
+                    int i;
+                    try {
+                        i = std::stoi(request[2]);
+                    } catch ( std::invalid_argument ) {
+                        player->sendMsg("NOT A NUMBER");
+                        continue;
+                    } catch ( std::out_of_range ) {
+                        player->sendMsg("OUT OF RANGE");
+                        continue;
+                    }
+                    *iStat = i;
+                }
+            } else {
+                *sStat = request[2];
+            }
+            logger.log(player->Name+"'s "+request[1]+" set to "+request[2]);
+            player->sendMsg("OK"); 
+            std::string temp = "NOTIFY";
+            playerMgr.sendAll(temp+del+player->Name+del+req);
+        } else if ( request.size() == 2 && request[0] == "RENAME") { // RENAME <new_name>
+            player->sendMsg("OK");
+            std::string temp = "NOTIFY";
+            logger.log(player->Name+" renamed to "+request[1]);
+            playerMgr.sendAll(temp+del+player->Name+del+req);
+            player->Name = request[1];
         } else if (  request.size() == 2 && request[0] == "SEE" ) { // SEE <spatial/player>
             CardContainer* container = spatialByName(request[1], player);
             if ( container == nullptr ) {
@@ -208,7 +299,7 @@ void worker () {
             std::string temp = "OK";
             std::string response = temp + del + join(cards, std::string(1,del));
             player->sendMsg(response);
-        } else if ( request.size() == 2 && request[0] == "LIST" ) { // LIST <deck/player>
+        } else if ( request.size() == 2 && request[0] == "CARDS" ) { // CARDS <deck/player>
             CardContainer* container = deckByName(request[1]);
             if ( container == nullptr ) {
                 Player* plr = playerMgr.playerByName(request[1]);
@@ -232,30 +323,19 @@ void worker () {
             std::string temp = "OK";
             std::string response = temp + del + join(cards, std::string(1,del));
             player->sendMsg(response);
-        } else if ( request.size() == 3 && request[0] == "FLIP" ) { // FLIP <container> <card>
-            CardContainer* container = spatialByName(request[1], player);
-            int i;
-            try {
-                i = std::stoi(request[2]);
-            } catch ( std::out_of_range ) {
-                player->sendMsg("OUT OF RANGE");
-                continue;
-            } catch ( std::invalid_argument ) {
-                player->sendMsg("NOT A NUMBER");
-                continue;
-            }
-            Card* card = container->card(i);
-            if ( card == nullptr ) {
-                player->sendMsg("OUT OF RANGE");
+        } else if ( request.size() == 2 && request[0] == "STAT" ) { // STAT <player>
+            Player* plr = playerMgr.playerByName(request[1]);
+            if ( plr == nullptr ) {
+                player->sendMsg("NOT FOUND");
             } else {
-                card->flip();
-                player->sendMsg("OK");
-                logger.log(player->Name+" flipped Card_"+std::to_string(card->Number)+" on "+request[1]);
-                if ( isVisible(request[1]) ) {
-                    std::string temp = "NOTIFY";
-                    playerMgr.sendAll(temp+del+player->Name+del+req);
-                }
-            }
+                std::string temp = "OK";
+                player->sendMsg(temp+del+"LEVEL "+std::to_string(plr->Level)+del+"POWER "+std::to_string(plr->Power)+del+"GOLD "+std::to_string(plr->Gold));
+            } 
+        } else if ( request.size() == 1 && request[0] == "PLAYERS" ) {
+            std::vector<std::string> players;
+            for ( Player* plr : playerMgr.Players ) players.push_back(plr->Name);
+            std::string temp = "OK";
+            player->sendMsg(temp+del+join(players, std::string(1,del)));
         } else {
             player->sendMsg("UNKNOWN");
         }
@@ -275,6 +355,8 @@ void establisher () {
         std::fill(buffer, buffer+CONN_REQ_LEN, 0);
         inet_ntop(AF_INET, &(client_address.sin_addr), buffer, INET_ADDRSTRLEN);
         address_string = buffer;
+
+        logger.log(address_string+" connected");
 
         std::fill(buffer, buffer+CONN_REQ_LEN, 0);
         read(client, buffer, CONN_REQ_LEN);
@@ -318,7 +400,11 @@ void establisher () {
     }
 }
 
-int main () {
+int main (int argc, char* args[]) {
+    // for ( int i = 0 ; i < argc ; i++ ) {
+    //     if ( strcmp(args[i], "-v") || strcmp(args[i], "--verbose") ) verbose = true;
+    // }
+
     server = socket(AF_INET, SOCK_STREAM, 0);
     if ( server == 0 ) {
         logger.log("ERROR: Failed to create server socket");
