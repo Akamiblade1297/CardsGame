@@ -206,7 +206,7 @@ void worker () {
             logger.log(player->Name+" moved Card_"+std::to_string(card->Number)+" from "+request[1]+" to "+request[3]+" (X: "+request[4]+", Y: "+request[5]+")");
             std::string temp = "NOTIFY";
             playerMgr.sendAll(temp+DEL+req);
-        } else if ( request.size() == 3 && request[0] == "FLIP" ) { // FLIP <container> <card>
+        } else if ( request.size() == 3 && request[0] == "FLIP" ) { // FLIP <spatial> <card>
             CardContainer* container = spatialByName(request[1], player);
 
             if ( container == nullptr ) {
@@ -236,6 +236,17 @@ void worker () {
                     std::string temp = "NOTIFY";
                     playerMgr.sendAll(temp+DEL+player->Name+DEL+req);
                 }
+            }
+        } else if ( request.size() == 2 && request[0] == "SHUFFLE" ) { // SHUFFLE <deck>
+            Deck* deck = deckByName(request[1]);
+            if ( deck == nullptr ) {
+                player->sendMsg("NOT FOUND");
+            } else {
+                deck->shuffle();
+                player->sendMsg("OK");
+
+                std::string temp = "NOTIFY";
+                playerMgr.sendAll(temp + DEL + "SHUFFLE" + DEL + player->Name + DEL + request[1]);
             }
         } else if ( request.size() == 3 && request[0] == "SET" ) { // SET <stat> <value>
             std::string* sStat = sStatByName(request[1], player);
@@ -425,7 +436,7 @@ void establisher () {
     }
 }
 
-int main (int argc, char* args[]) {
+int main ( int argc, char* args[] ) {
     // for ( int i = 0 ; i < argc ; i++ ) {
     //     if ( strcmp(args[i], "-v") || strcmp(args[i], "--verbose") ) verbose = true;
     // }
