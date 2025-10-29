@@ -352,12 +352,12 @@ void worker () {
                 std::string temp = "OK";
                 player->sendMsg(temp+DEL+"LEVEL "+std::to_string(plr->Level)+DEL+"POWER "+std::to_string(plr->Power)+DEL+"GOLD "+std::to_string(plr->Gold));
             } 
-        } else if ( request.size() == 1 && request[0] == "PLAYERS" ) {
+        } else if ( request.size() == 1 && request[0] == "PLAYERS" ) { // PLAYERS
             std::vector<std::string> players;
-            for ( int i = 0 ; i < playerMgr.size() ; i++ ) players.push_back(playerMgr.playerById(i)->Name);
+            for ( int i = 1 ; i <= playerMgr.size() ; i++ ) players.push_back(playerMgr.playerById(i)->Name);
             std::string temp = "OK";
             player->sendMsg(temp+DEL+join(players, std::string(1,DEL)));
-        } else if ( request.size() == 2 && request[0] == "PING" && request[1].size() == 8 ) { // PING <random data>
+        } else if ( request.size() == 2 && request[0] == "PING" && request[1].size() == 4 ) { // PING <random data>
             std::string temp = "PONG";
             player->sendMsg(temp + DEL + request[1]);
         } else {
