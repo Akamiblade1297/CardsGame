@@ -3,13 +3,15 @@ import socket
 client = socket.socket()
 client.connect(('127.0.0.1',8494))
 
+def parse (msg):
+    parsed = eval(f'"{msg}"')
+    return parsed.replace('/', '\n').encode()
 try:
     while True:
-        request = input().replace('/','\n')
+        request = input()
         if request != '':
-            client.send(request.encode())
+            client.send(parse(request))
 
-        response = client.recv(1024)
-        print(f"Server: {response.decode()}\n")
+        print(client.recv(1024))
 except KeyboardInterrupt:
     ''

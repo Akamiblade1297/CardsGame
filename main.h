@@ -1,3 +1,6 @@
+#include <cstdint>
+#include <cstdlib>
+#include <iterator>
 #include <numeric>
 #include <typeinfo>
 #include <iostream>
@@ -208,15 +211,15 @@ class Deck : public CardContainer {
  */
 class Table : public CardContainer {
     private:
-        std::default_random_engine Rng;
+        std::default_random_engine *Rng;
     public:
         Deck TrapDoors;
         Deck Treasures;
 
-        Table () : TrapDoors(&Rng), Treasures(&Rng) {
-            std::random_device Rd;
-            Rng = std::default_random_engine(Rd());
-
+        /**
+         * @param rng Random Number Generator for Shuffling
+         */
+        Table ( std::default_random_engine* rng ) : Rng(rng), TrapDoors(Rng), Treasures(Rng) {
             for ( int i = 0 ; i < TRESH; i++ ) {
                 Card* card = new Card(i);
                 TrapDoors.push(card);
@@ -238,7 +241,7 @@ class Table : public CardContainer {
  */
 class Player {
     private:
-        uint32_t Pass;
+        uint64_t Pass;
     public:
         int ConnectionSocket;
         std::string Name;
@@ -254,27 +257,25 @@ class Player {
          * @param name Username
          * @param socket Player connection File Descriptor
          */
-        Player ( uint32_t pass, std::string name, int socket )
+        Player ( uint64_t pass, std::string name, int socket )
             : Pass(pass), Name(name), ConnectionSocket(socket) {}
 
         /**
-         * Authorize player
-         *
-         * @param pass Secret key
-         * @return True if Success, False if Failed (Wrong Pass)
-         */
-        bool auth ( uint32_t pass ) {
-            return ( Pass == pass );
+         * Get player Secret key
+         * */
+        uint64_t pass () {
+            return Pass;
         }
 
         /**
          * Send message to Player
          *
          * @param message Message to send
+         * @param n Message length (-1 for automatic)
          */
-        void sendMsg( std::string message ) {
+        void sendMsg( std::string message, int n = -1 ) {
             message += DEL;
-            int n = message.length();
+            if ( n == -1 ) n = message.length();
             send(ConnectionSocket, message.data(), n, 0);
         }
 };
@@ -321,11 +322,13 @@ class WorkerQueue {
  */
 class PlayerManager {
     private:
+        std::vector<Player*> Players;
         WorkerQueue* Queue;
         Log* Logger;
         std::mutex join_mutex;
+        std::random_device& rd;
 
-        static void receiver( Player* player, WorkerQueue* queue, Log* logger ) {
+        static void receiver ( Player* player, WorkerQueue* queue, Log* logger ) {
             char buffer[BUF] = {0};
             while ( true ) {
                 if ( read(player->ConnectionSocket, buffer, BUF) == 0 ) { logger->log(player->Name+" disconnected"); break; }
@@ -333,13 +336,26 @@ class PlayerManager {
                 std::fill(buffer, buffer+BUF, 0);
             }
         };
+        uint64_t gen_pass () {
+            uint64_t new_pass = rd();
+            new_pass = (new_pass<<32) + rd();
+            return new_pass;
+        }
     public:
-        std::vector<Player*> Players;
-
-        PlayerManager ( WorkerQueue* queue, Log* logger )
-            : Queue(queue), Logger(logger) {}
+        /**
+         *
+         * @param queue Pointer to a requests Queue
+         * @param logger Pointer to a logging object
+         * @param rd Reference to a Random device to generate Secret Keys
+         */
+        PlayerManager ( WorkerQueue* queue, Log* logger, std::random_device& rd )
+            : Queue(queue), Logger(logger), rd(rd) {}
         ~PlayerManager () {
             for ( int i = Players.size()-1 ; i >= 0 ; i-- ) delete Players[i];
+        }
+
+        size_t size () const {
+            return Players.size();
         }
 
         /**
@@ -348,7 +364,7 @@ class PlayerManager {
          * @param id Player Id
          * @return Pointer to a Player if Success, nullptr if Failed (Out of Bounds)
          */
-        Player* playerById( int id ) {
+        Player* playerById( size_t id ) {
             if ( id <= 0 or id > Players.size() ) {
                 return nullptr;
             } else {
@@ -360,7 +376,7 @@ class PlayerManager {
          * Get Player by Username
          *
          * @param name Player Username
-         * @return Pointer to a Player if Success, nullptr if Failed (Out of Bounds)
+         * @return Pointer to a Player if Success, nullptr if Failed (Not Found)
          */
         Player* playerByName( std::string name ) {
             for ( Player* player : Players ) {
@@ -375,11 +391,11 @@ class PlayerManager {
          * Get Player by Pass
          *
          * @param pass Player Secret key
-         * @return Pointer to a Player if Success, nullptr if Failed (Out of Bounds)
+         * @return Pointer to a Player if Success, nullptr if Failed (Not Found)
          */
-        Player* playerByPass( uint32_t pass ) {
+        Player* playerByPass( uint64_t pass ) {
             for ( Player* player : Players ) {
-                if ( player->auth(pass) ) {
+                if ( pass == player->pass() ) {
                     return player;
                 }
             }
@@ -392,7 +408,7 @@ class PlayerManager {
          * @param player Pointer to a player
          * @return Player Id if Success, -1 if Failed (Not Found)
          */
-        int playerId( Player* player ) {
+        size_t playerId( const Player* player ) {
             for ( int i = 0 ; i < Players.size() ; i++ ) {
                 if ( Players[i] == player ) { return i+1; }
             }
@@ -407,14 +423,14 @@ class PlayerManager {
          * @param socket New Player connection File Descriptor
          * @return Pointer to a New Player
          */
-        Player* join( uint32_t pass, std::string name, int socket ) {
+        Player* join( std::string name, const int socket ) {
             std::lock_guard<std::mutex> lock(join_mutex);
             for ( Player* player : Players ) {
                 if ( player->Name == name ) {
                     name = name+"_ЖалкаяПародия";
                 }
             }
-            Player* new_player = new Player(pass, name, socket);
+            Player* new_player = new Player(gen_pass(), name, socket);
             Players.push_back(new_player);
 
             std::thread receiver_thread(receiver, new_player, Queue, Logger);
@@ -430,16 +446,14 @@ class PlayerManager {
          * @param socket New Player connection File Descriptor
          * @return Pointer to a Player if Success, nullptr if Failed (Not Found)
          */
-        Player* rejoin ( uint32_t pass, int socket ) {
+        Player* rejoin ( uint64_t pass, const int socket ) {
             Player* player = playerByPass(pass);
-            if ( player == nullptr ) {
-                return nullptr;
-            } else {
+            if ( player != nullptr ) {
                 player->ConnectionSocket = socket;
                 std::thread receiver_thread(receiver, player, Queue, Logger);
                 receiver_thread.detach();
-                return player;
             }
+            return player;
         }
 
         /**
@@ -447,13 +461,14 @@ class PlayerManager {
          *
          * @param name Player Username
          * @param message Message to send
+         * @param n Message length (-1 for automatic)
          * @return 0 if Success, -1 if Failed (Not Found)
          */
-        int sendByName ( std::string name, std::string message ) {
+        int sendByName ( std::string name, std::string message, int n = -1 ) {
             Player* player = playerByName(name);
             if ( player == nullptr ) { return -1; }
 
-            player->sendMsg(message);
+            player->sendMsg(message, n);
             return 0;
         }
 
@@ -461,11 +476,11 @@ class PlayerManager {
          * Send message to all Players
          *
          * @param message Message to send
+         * @param n Message length (-1 for automatic)
          */
-        void sendAll ( std::string message ) {
-            int n = message.length();
+        void sendAll ( std::string message, int n = -1 ) {
             for ( Player* player : Players ) {
-                send(player->ConnectionSocket, message.data(), n, 0);
+                player->sendMsg(message, n);
             }
         }
 };

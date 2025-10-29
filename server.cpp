@@ -1,10 +1,17 @@
 #include "main.h"
+#include <asm-generic/socket.h>
 #include <cstring>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <sys/select.h>
+#include <sys/socket.h>
+#include <csignal>
 
-Table table;
+std::random_device rd;
+std::default_random_engine rng(rd());
+
+Table table(&rng);
 
 bool isVisible( std::string containerName ) {
     if ( containerName == "TABLE" || containerName == "EQUIPPED" ) { return true; }
@@ -100,11 +107,11 @@ int transformContainer(Player* player, CardContainer* container, std::string i, 
 Log logger("logs/log");
 // bool verbose = false;
 WorkerQueue queue;
-PlayerManager playerMgr(&queue, &logger);
+PlayerManager playerMgr(&queue, &logger, rd);
 struct sockaddr_in address;
 int addrlen = sizeof(address);
 int server;
-int reuse = 1;
+bool reuse = 1;
 
 // void verb ( std::string msg ) {
 //     if ( verbose ) std::cout << msg << std::endl;
@@ -347,7 +354,7 @@ void worker () {
             } 
         } else if ( request.size() == 1 && request[0] == "PLAYERS" ) {
             std::vector<std::string> players;
-            for ( Player* plr : playerMgr.Players ) players.push_back(plr->Name);
+            for ( int i = 0 ; i < playerMgr.size() ; i++ ) players.push_back(playerMgr.playerById(i)->Name);
             std::string temp = "OK";
             player->sendMsg(temp+DEL+join(players, std::string(1,DEL)));
         } else if ( request.size() == 2 && request[0] == "PING" && request[1].size() == 8 ) { // PING <random data>
@@ -366,7 +373,8 @@ void establisher () {
     struct sockaddr_in client_address;
     struct timeval timeout;
     fd_set set;
-    uint32_t pass;
+    uint64_t pass;
+    char cpass[9] = {0};
     int client;
 
     while ( true ) {
@@ -401,26 +409,25 @@ void establisher () {
 
         std::vector<std::string> request = split(buffer, DEL);
 
-        if ( request.size() == 3 && request[0] == "JOIN") {
-            std::memcpy(&pass, request[1].data(), 4);
-            name = request[2];
-            Player* player = playerMgr.join(pass, name, client);
-            if ( player->Name == name ) {
-                logger.log(address_string+" assigned as "+name);
-                player->sendMsg("OK");
-
-                std::string temp = "JOIN";
-                playerMgr.sendAll(temp+DEL+name);
-            } else {
-                Player* player = playerMgr.playerByPass(pass);
-                logger.log(address_string+" assigned as "+player->Name);
-                player->sendMsg("RENAMED");
-
-                std::string temp = "JOIN";
-                playerMgr.sendAll(temp+DEL+player->Name);
+        if ( request.size() == 2 && request[0] == "JOIN" ) {
+            name = request[1];
+            Player* player = playerMgr.join(name, client);
+            logger.log(address_string+" assigned as "+player->Name);
+            std::string temp;
+            if ( player->Name == name )
+                temp = "OK";
+            else {
+                temp = "RENAMED";
+                temp += DEL+player->Name;
             }
-        } else if ( request.size() == 2 && request[0] == "REJOIN" ) { 
-            std::memcpy(&pass, request[1].data(), 4);
+            pass = player->pass();
+            std::memcpy(cpass, &pass, 8);
+            player->sendMsg(temp + DEL + cpass);
+
+            temp = "JOIN";
+            playerMgr.sendAll(temp+DEL+player->Name);
+        } else if ( request.size() == 2 && request[0] == "REJOIN" && request[1].size() == 8 ) { 
+            std::memcpy(&pass, request[1].data(), 8);
             Player* player = playerMgr.rejoin(pass, client);
             if ( player == nullptr ) {
                 strcpy(buffer, "NOT FOUND");
@@ -431,7 +438,7 @@ void establisher () {
                 player->sendMsg("OK");
             }
         } else {
-            strcpy(buffer, "UNKNOWN");
+            strcpy(buffer, "BAD REQUEST");
             send(client, buffer, 7, 0);
             close(client);
         }
@@ -439,9 +446,7 @@ void establisher () {
 }
 
 int main ( int argc, char* args[] ) {
-    // for ( int i = 0 ; i < argc ; i++ ) {
-    //     if ( strcmp(args[i], "-v") || strcmp(args[i], "--verbose") ) verbose = true;
-    // }
+    signal(SIGPIPE, SIG_IGN);
 
     server = socket(AF_INET, SOCK_STREAM, 0);
     if ( server == 0 ) {
