@@ -65,38 +65,6 @@ CardContainer* spatialByName ( std::string name, Player* player ) {
     }
 }
 
-Log logger("logs/log");
-// bool verbose = false;
-WorkerQueue queue;
-PlayerManager playerMgr(&queue, &logger);
-struct sockaddr_in address;
-int addrlen = sizeof(address);
-int server;
-int reuse = 1;
-
-// void verb ( std::string msg ) {
-//     if ( verbose ) std::cout << msg << std::endl;
-// }
-
-std::string join ( const std::vector<std::string>& vec, const std::string& del ) {
-     return std::accumulate(vec.begin(), vec.end(), std::string{},
-            [del](const std::string& a, const std::string& b) {
-                return a + (a.empty() ? "" : del) + b;
-            });
-}
-
-std::vector<std::string> split( char* str, char del ) {
-    std::vector<std::string> str_vec;
-    std::stringstream str_stream(str);
-    std::string s;
-    
-    while ( std::getline(str_stream, s, del) ) {
-        str_vec.push_back(s);
-    }
-
-    return str_vec;
-}
-
 int transformCard(Player* player, Card* card, std::string x, std::string y) { 
     try {
         card->transform(std::stoi(x), std::stoi(y));
@@ -129,6 +97,38 @@ int transformContainer(Player* player, CardContainer* container, std::string i, 
     }
 }
 
+Log logger("logs/log");
+// bool verbose = false;
+WorkerQueue queue;
+PlayerManager playerMgr(&queue, &logger);
+struct sockaddr_in address;
+int addrlen = sizeof(address);
+int server;
+int reuse = 1;
+
+// void verb ( std::string msg ) {
+//     if ( verbose ) std::cout << msg << std::endl;
+// }
+
+std::string join ( const std::vector<std::string>& vec, const std::string& del ) {
+     return std::accumulate(vec.begin(), vec.end(), std::string{},
+            [del](const std::string& a, const std::string& b) {
+                return a + (a.empty() ? "" : del) + b;
+            });
+}
+
+std::vector<std::string> split( char* str, char del ) {
+    std::vector<std::string> str_vec;
+    std::stringstream str_stream(str);
+    std::string s;
+    
+    while ( std::getline(str_stream, s, del) ) {
+        str_vec.push_back(s);
+    }
+
+    return str_vec;
+}
+
 void worker () {
     char buffer[BUF];
     while ( true ) {
@@ -137,10 +137,13 @@ void worker () {
         strcpy(buffer, req.c_str());
         std::vector<std::string> request = split(buffer, DEL);
         
-        if ( request.size() == 2 && request[0] == "CHAT" ) { // CHAT <message>
-            std::string temp = "CHAT";
-            playerMgr.sendAll(temp + DEL + player->Name + DEL + request[1]);
-            logger.log(player->Name+": "+request[1]);
+        if ( request.size() == 2 && ( request[0] == "CHAT" || request[0] == "ACT" ) ) { // CHAT <message>
+            playerMgr.sendAll(request[0] + DEL + player->Name + DEL + request[1]);      // ACT  <action>
+            std::vector<std::string> temp;
+            if ( request[0] == "CHAT" ) { temp.push_back(": ");temp.push_back("") ; }
+            else                        { temp.push_back(" *");temp.push_back("*"); }
+
+            logger.log(player->Name + temp[0] + request[1] + temp[1]);
         } else if ( request.size() == 3 && request[0] == "WHISPER" ) { // WHISPER <player> <message>
             Player* player_dest = playerMgr.playerByName(request[1]);
             std::string temp = "WHISPER";
@@ -347,8 +350,11 @@ void worker () {
             for ( Player* plr : playerMgr.Players ) players.push_back(plr->Name);
             std::string temp = "OK";
             player->sendMsg(temp+DEL+join(players, std::string(1,DEL)));
+        } else if ( request.size() == 2 && request[0] == "PING" && request[1].size() == 8 ) { // PING <random data>
+            std::string temp = "PONG";
+            player->sendMsg(temp + DEL + request[1]);
         } else {
-            player->sendMsg("UNKNOWN");
+            player->sendMsg("BAD REQUEST");
         }
     }
 }
@@ -362,6 +368,7 @@ void establisher () {
     fd_set set;
     uint32_t pass;
     int client;
+
     while ( true ) {
         std::fill(buffer, buffer+CONN_REQ_LEN, 0);
         timeout.tv_sec = 5; timeout.tv_usec = 0;
@@ -397,24 +404,20 @@ void establisher () {
         if ( request.size() == 3 && request[0] == "JOIN") {
             std::memcpy(&pass, request[1].data(), 4);
             name = request[2];
-            switch ( playerMgr.join(pass, name, client) ) {
-                case 0: {
-                    logger.log(address_string+" assigned as "+name);
-                    strcpy(buffer, "OK");
-                    send(client, buffer, 2, 0);
-                    std::string temp = "JOIN";
-                    playerMgr.sendAll(temp+DEL+name);
-                    break;
-                }
-                case 1: {
-                    Player* player = playerMgr.playerByPass(pass);
-                    logger.log(address_string+" assigned as "+player->Name);
-                    strcpy(buffer, "RENAMED");
-                    send(client, buffer, 7, 0);
-                    std::string temp = "JOIN";
-                    playerMgr.sendAll(temp+DEL+player->Name);
-                    break;
-                }
+            Player* player = playerMgr.join(pass, name, client);
+            if ( player->Name == name ) {
+                logger.log(address_string+" assigned as "+name);
+                player->sendMsg("OK");
+
+                std::string temp = "JOIN";
+                playerMgr.sendAll(temp+DEL+name);
+            } else {
+                Player* player = playerMgr.playerByPass(pass);
+                logger.log(address_string+" assigned as "+player->Name);
+                player->sendMsg("RENAMED");
+
+                std::string temp = "JOIN";
+                playerMgr.sendAll(temp+DEL+player->Name);
             }
         } else if ( request.size() == 2 && request[0] == "REJOIN" ) { 
             std::memcpy(&pass, request[1].data(), 4);
@@ -425,8 +428,7 @@ void establisher () {
                 close(client);
             } else {
                 logger.log(player->Name+" rejoined from "+address_string);
-                strcpy(buffer, "OK");
-                send(client, buffer, 2, 0);
+                player->sendMsg("OK");
             }
         } else {
             strcpy(buffer, "UNKNOWN");

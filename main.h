@@ -273,6 +273,7 @@ class Player {
          * @param message Message to send
          */
         void sendMsg( std::string message ) {
+            message += DEL;
             int n = message.length();
             send(ConnectionSocket, message.data(), n, 0);
         }
@@ -404,15 +405,13 @@ class PlayerManager {
          * @param pass New Player Secret key
          * @param name New Player Username
          * @param socket New Player connection File Descriptor
-         * @return 0 if Success, 1 if Renamed
+         * @return Pointer to a New Player
          */
-        int join( uint32_t pass, std::string name, int socket ) {
-            int res = 0;
+        Player* join( uint32_t pass, std::string name, int socket ) {
             std::lock_guard<std::mutex> lock(join_mutex);
             for ( Player* player : Players ) {
                 if ( player->Name == name ) {
                     name = name+"_ЖалкаяПародия";
-                    res = 1;
                 }
             }
             Player* new_player = new Player(pass, name, socket);
@@ -421,7 +420,7 @@ class PlayerManager {
             std::thread receiver_thread(receiver, new_player, Queue, Logger);
             receiver_thread.detach();
 
-            return res;
+            return new_player;
         }
 
         /**
@@ -520,3 +519,24 @@ Deck* deckByName ( std::string name );
  * @return True if Container if visible, False otherwise
  */
 bool isVisible ( std::string containerName );
+/**
+ * Transform Card
+ *
+ * @param player Player that should get response
+ * @param card a Card to transform
+ * @param x X coordinate
+ * @param y Y coordinate
+ * @return 0 if Success, -1 if Failed
+ */
+int transformCard(Player* player, Card* card, std::string x, std::string y);
+/**
+ * Transform Card inside a Container
+ *
+ * @param player Player that should get response
+ * @param container Container, containing a card
+ * @param i Card Index
+ * @param x X coordinate
+ * @param y Y coordinate
+ * @return 0 if Success, -1 if Failed
+ */
+int transformContainer(Player* player, CardContainer* container, std::string i, std::string x, std::string y);
