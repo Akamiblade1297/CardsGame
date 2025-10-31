@@ -1,3 +1,5 @@
+#ifndef MAIN_H
+#define MAIN_H
 #include <cstdint>
 #include <cstdlib>
 #include <iterator>
@@ -555,3 +557,4 @@ int transformCard(Player* player, Card* card, std::string x, std::string y);
  * @return 0 if Success, -1 if Failed
  */
 int transformContainer(Player* player, CardContainer* container, std::string i, std::string x, std::string y);
+#endif

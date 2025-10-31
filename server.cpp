@@ -1,4 +1,5 @@
 #include "main.h"
+#include "functions.cpp"
 #include <asm-generic/socket.h>
 #include <cstring>
 #include <random>
@@ -8,101 +9,12 @@
 #include <sys/socket.h>
 #include <csignal>
 
-std::random_device rd;
-std::default_random_engine rng(rd());
+#define NOTIFY temp+DEL+player->Name+DEL+req
+#define UNK ( card->Trap ? "TRAP" : "TRES" )
 
-Table table(&rng);
-
-bool isVisible( std::string containerName ) {
-    if ( containerName == "TABLE" || containerName == "EQUIPPED" ) { return true; }
-    return false;
-}
-
-std::string* sStatByName ( std::string name, Player* player ) {
-    return nullptr;
-}
-
-int* iStatByName ( std::string name, Player* player ) {
-    if ( name == "LEVEL" ) {
-        return &player->Level;
-    } else if ( name == "POWER" ) {
-        return &player->Power;
-    } else if ( name == "GOLD" ) {
-        return &player->Gold;
-    } else {
-        return nullptr;
-    }
-}
-
-CardContainer* containerByName ( std::string name, Player* player ) {
-    if ( name == "TABLE" ) {
-        return &table;
-    } else if ( name == "TREASURES" ) {
-        return &table.Treasures;
-    } else if ( name == "TRAPDOORS" ) {
-        return &table.TrapDoors;
-    } else if ( name == "INVENTORY" ) {
-        return &player->Inventory;
-    } else if ( name == "EQUIPPED" ) {
-        return &player->Equiped;
-    } else {
-        return nullptr;
-    }
-}
-
-Deck* deckByName ( std::string name ) {
-    if ( name == "TREASURES" ) {
-        return &table.Treasures;
-    } else if ( name == "TRAPDOORS" ) {
-        return &table.TrapDoors;
-    } else {
-        return nullptr;
-    }
-}
-
-CardContainer* spatialByName ( std::string name, Player* player ) {
-    if ( name == "TABLE" ) {
-        return &table;
-    } else if ( name == "INVENTORY" ) {
-        return &player->Inventory;
-    } else if ( name == "EQUIPPED" ) {
-        return &player->Equiped;
-    } else {
-        return nullptr;
-    }
-}
-
-int transformCard(Player* player, Card* card, std::string x, std::string y) { 
-    try {
-        card->transform(std::stoi(x), std::stoi(y));
-        player->sendMsg("OK");
-        return 0;
-    } catch ( std::invalid_argument ) {
-        player->sendMsg("NOT NUMBER");
-        return -1;
-    } catch ( std::out_of_range ) {
-        player->sendMsg("OUT OF RANGE");
-        return -1;
-    }
-}
-
-int transformContainer(Player* player, CardContainer* container, std::string i, std::string x, std::string y) { 
-    try {
-        if ( container->transform(std::stoi(i), std::stoi(x), std::stoi(y)) == 0 ) {
-            player->sendMsg("OK");
-            return 0;
-        } else {
-            player->sendMsg("NOT FOUND");
-            return -1;
-        }
-    } catch ( std::invalid_argument ) {
-        player->sendMsg("NOT NUMBER");
-        return -1;
-    } catch ( std::out_of_range ) {
-        player->sendMsg("OUT OF RANGE");
-        return -1;
-    }
-}
+// void verb ( std::string msg ) {
+//     if ( verbose ) std::cout << msg << std::endl;
+// }
 
 Log logger("logs/log");
 // bool verbose = false;
@@ -111,16 +23,12 @@ PlayerManager playerMgr(&queue, &logger, rd);
 struct sockaddr_in address;
 int addrlen = sizeof(address);
 int server;
-bool reuse = 1;
-
-// void verb ( std::string msg ) {
-//     if ( verbose ) std::cout << msg << std::endl;
-// }
+int reuse = 1;
 
 std::string join ( const std::vector<std::string>& vec, const std::string& del ) {
      return std::accumulate(vec.begin(), vec.end(), std::string{},
             [del](const std::string& a, const std::string& b) {
-                return a + (a.empty() ? "" : del) + b;
+                return a + del + b;
             });
 }
 
@@ -165,18 +73,18 @@ void worker () {
             CardContainer* dest = containerByName(request[2], player);
             Card* card = nullptr;
             if ( src == dest || src == nullptr || dest == nullptr ) {
-                player->sendMsg("ERROR");
+                player->sendMsg("BAD CONTAINER");
+                continue;
+            }
+            card = src->pop_and_move(dest);
+            if ( card == nullptr ) {
+                player->sendMsg("EMPTY");
+            } else if ( transformCard(player, card, request[3], request[4]) != 0 ) {
+                player->sendMsg("NOT FOUND");
             } else {
-                card = src->pop_and_move(dest);
-                if ( card == nullptr ) {
-                    player->sendMsg("EMPTY");
-                } else if ( transformCard(player, card, request[3], request[4]) == 0 ) {
-                    logger.log(player->Name+" moved Card_"+std::to_string(card->Number)+" from "+request[1]+" to "+request[2]+" (X: "+request[3]+", Y: "+request[4]+")");
-                    std::string temp = "NOTIFY";
-                    std::string notification = temp+DEL+"DECK"+DEL+player->Name+DEL+request[1]+DEL+request[2];
-                    if ( isVisible(request[2]) ) { notification = notification + DEL + ( card->Face ? std::to_string(card->Number) : ( card->Trap ? "TRAP" : "TRES" ) ); }
-                    playerMgr.sendAll(notification);
-                }
+                logger.log(player->Name+" moved Card_"+std::to_string(card->Number)+" from "+request[1]+" to "+request[2]+" (X: "+request[3]+", Y: "+request[4]+")");
+                std::string temp = "NOTIFY";
+                playerMgr.sendAll(NOTIFY+DEL+( isVisible(request[2]) && card->Face ? std::to_string(card->Number) : UNK ));
             }
         } else if ( ( request.size() == 6 ) && request[0] == "MOVE" ) { // MOVE <spatial src> <card_id> <dest> <x> <y>
             CardContainer* src  = spatialByName(request[1], player);
@@ -195,7 +103,7 @@ void worker () {
             }
 
             if ( src == nullptr || dest == nullptr ) {
-                player->sendMsg("ERROR");
+                player->sendMsg("BAD CONTAINER");
                 continue;
             }
             else if ( src == dest ) {
@@ -215,7 +123,7 @@ void worker () {
             }
             logger.log(player->Name+" moved Card_"+std::to_string(card->Number)+" from "+request[1]+" to "+request[3]+" (X: "+request[4]+", Y: "+request[5]+")");
             std::string temp = "NOTIFY";
-            playerMgr.sendAll(temp+DEL+req);
+            playerMgr.sendAll(NOTIFY+DEL+( isVisible(request[3]) && card->Face ? std::to_string(card->Number) : UNK ));
         } else if ( request.size() == 3 && request[0] == "FLIP" ) { // FLIP <spatial> <card>
             CardContainer* container = spatialByName(request[1], player);
 
@@ -240,11 +148,10 @@ void worker () {
                 player->sendMsg("OUT OF RANGE");
             } else {
                 card->flip();
-                player->sendMsg("OK");
                 logger.log(player->Name+" flipped Card_"+std::to_string(card->Number)+" on "+request[1]);
                 if ( isVisible(request[1]) ) {
                     std::string temp = "NOTIFY";
-                    playerMgr.sendAll(temp+DEL+player->Name+DEL+req);
+                    playerMgr.sendAll(NOTIFY+DEL+( isVisible(request[1]) ? std::to_string(card->Number) : UNK ));
                 }
             }
         } else if ( request.size() == 2 && request[0] == "SHUFFLE" ) { // SHUFFLE <deck>
@@ -253,10 +160,9 @@ void worker () {
                 player->sendMsg("NOT FOUND");
             } else {
                 deck->shuffle();
-                player->sendMsg("OK");
 
                 std::string temp = "NOTIFY";
-                playerMgr.sendAll(temp + DEL + "SHUFFLE" + DEL + player->Name + DEL + request[1]);
+                playerMgr.sendAll(NOTIFY);
             }
         } else if ( request.size() == 3 && request[0] == "SET" ) { // SET <stat> <value>
             std::string* sStat = sStatByName(request[1], player);
@@ -285,14 +191,12 @@ void worker () {
                 *sStat = request[2];
             }
             logger.log(player->Name+"'s "+request[1]+" set to "+request[2]);
-            player->sendMsg("OK"); 
             std::string temp = "NOTIFY";
-            playerMgr.sendAll(temp+DEL+player->Name+DEL+req);
+            playerMgr.sendAll(NOTIFY);
         } else if ( request.size() == 2 && request[0] == "RENAME") { // RENAME <new_name>
-            player->sendMsg("OK");
-            std::string temp = "NOTIFY";
             logger.log(player->Name+" renamed to "+request[1]);
-            playerMgr.sendAll(temp+DEL+player->Name+DEL+req);
+            std::string temp = "NOTIFY";
+            playerMgr.sendAll(NOTIFY);
             player->Name = request[1];
         } else if (  request.size() == 2 && request[0] == "SEE" ) { // SEE <spatial/player>
             CardContainer* container = spatialByName(request[1], player);
@@ -318,8 +222,7 @@ void worker () {
                 cards.push_back(id+' '+std::to_string(card->X)+' '+std::to_string(card->Y));
             }
             std::string temp = "OK";
-            std::string response = temp + DEL + join(cards, std::string(1,DEL));
-            player->sendMsg(response);
+            player->sendMsg(temp + join(cards, std::string(1,DEL)) + DEL + "END");
         } else if ( request.size() == 2 && request[0] == "CARDS" ) { // CARDS <deck/player>
             CardContainer* container = deckByName(request[1]);
             if ( container == nullptr ) {
@@ -334,16 +237,19 @@ void worker () {
             std::vector<std::string> cards;
             for ( Card* card : container->Cards ) {
                 std::string id;
-                if ( card->Trap ) {
-                    id = "TRAP";
+                if ( container == &player->Inventory ) {
+                    id = std::to_string(card->Number);
                 } else {
-                    id = "TRES";
+                    if ( card->Trap ) {
+                        id = "TRAP";
+                    } else {
+                        id = "TRES";
+                    }
                 }
                 cards.push_back(id+' '+std::to_string(card->X)+' '+std::to_string(card->Y));
             }
             std::string temp = "OK";
-            std::string response = temp + DEL + join(cards, std::string(1,DEL));
-            player->sendMsg(response);
+            player->sendMsg(temp + join(cards, std::string(1,DEL)) + DEL + "END");
         } else if ( request.size() == 2 && request[0] == "STAT" ) { // STAT <player>
             Player* plr = playerMgr.playerByName(request[1]);
             if ( plr == nullptr ) {
@@ -356,7 +262,7 @@ void worker () {
             std::vector<std::string> players;
             for ( int i = 1 ; i <= playerMgr.size() ; i++ ) players.push_back(playerMgr.playerById(i)->Name);
             std::string temp = "OK";
-            player->sendMsg(temp+DEL+join(players, std::string(1,DEL)));
+            player->sendMsg(temp+join(players, std::string(1,DEL))+DEL+"END");
         } else if ( request.size() == 2 && request[0] == "PING" && request[1].size() == 4 ) { // PING <random data>
             std::string temp = "PONG";
             player->sendMsg(temp + DEL + request[1]);
@@ -374,8 +280,8 @@ void establisher () {
     struct timeval timeout;
     fd_set set;
     uint64_t pass;
-    char cpass[9] = {0};
     int client;
+    size_t len;
 
     while ( true ) {
         std::fill(buffer, buffer+CONN_REQ_LEN, 0);
@@ -405,9 +311,10 @@ void establisher () {
                 close(client);
                 continue;
         }
-        read(client, buffer, CONN_REQ_LEN);
+        len = read(client, buffer, CONN_REQ_LEN);
 
         std::vector<std::string> request = split(buffer, DEL);
+        std::string req = buffer;
 
         if ( request.size() == 2 && request[0] == "JOIN" ) {
             name = request[1];
@@ -420,26 +327,28 @@ void establisher () {
                 temp = "RENAMED";
                 temp += DEL+player->Name;
             }
+
+            char cpass[9] = {0};
             pass = player->pass();
             std::memcpy(cpass, &pass, 8);
             player->sendMsg(temp + DEL + cpass);
 
             temp = "JOIN";
             playerMgr.sendAll(temp+DEL+player->Name);
-        } else if ( request.size() == 2 && request[0] == "REJOIN" && request[1].size() == 8 ) { 
-            std::memcpy(&pass, request[1].data(), 8);
+        } else if ( len == 15 && req[6] == '\n' && req.substr(0, 6) == "REJOIN" ) { 
+            std::memcpy(&pass, req.substr(7,8).data(), 8);
             Player* player = playerMgr.rejoin(pass, client);
             if ( player == nullptr ) {
-                strcpy(buffer, "NOT FOUND");
-                send(client, buffer, 9, 0);
+                std::string response = "NOT FOUND";
+                send(client, response.data(), response.size(), 0);
                 close(client);
             } else {
                 logger.log(player->Name+" rejoined from "+address_string);
                 player->sendMsg("OK");
             }
         } else {
-            strcpy(buffer, "BAD REQUEST");
-            send(client, buffer, 7, 0);
+            std::string response = "BAD REQUEST";
+            send(client, response.data(), response.size(), 0);
             close(client);
         }
     }
