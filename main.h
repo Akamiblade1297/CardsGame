@@ -87,12 +87,16 @@ class Card {
          *
          * @param x New coordinate X
          * @param y New coordinate Y
-         * @param rot New rotation (-1 to leave unchanged)
          */
-        void transform( int x, int y, int rot = -1 ) {
+        void transform( int x, int y ) {
             X = x;
             Y = y;
-            if ( rot > 0 ) { Rotation = rot; }
+        }
+
+        int rotate ( int rot ) {
+            if ( rot < 0 || rot > 360 ) return -1;
+            Rotation = rot;
+            return 0;
         }
 };
 
@@ -149,18 +153,28 @@ class CardContainer {
         }
 
         /**
-         * Change card position and rotation
+         * Change card position
          *
          * @param i Card index
          * @param x New coordinate X
          * @param y New coordinate Y
+         * @return 0 if Success, -1 if Error (Out of Bounds)
+         */
+        int transform ( int i, int x, int y ) {
+            if ( i < 0 || i >= Cards.size() ) { return -1; }
+            Cards[i]->transform(x, y);
+            return 0;
+        }
+
+        /**
+         * Change card rotation
+         * @param i Card index
          * @param rot New rotation (-1 for default)
          * @return 0 if Success, -1 if Error (Out of Bounds)
          */
-        int transform ( int i, int x, int y, int rot = -1 ) {
+        int rotate ( int i, int rot ) {
             if ( i < 0 || i >= Cards.size() ) { return -1; }
-            Cards[i]->transform(x, y, rot);
-            return 0;
+            return Cards[i]->rotate(rot);
         }
 };
 

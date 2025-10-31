@@ -2,7 +2,6 @@
 #include "functions.cpp"
 #include <asm-generic/socket.h>
 #include <cstring>
-#include <random>
 #include <stdexcept>
 #include <string>
 #include <sys/select.h>
@@ -124,6 +123,32 @@ void worker () {
             logger.log(player->Name+" moved Card_"+std::to_string(card->Number)+" from "+request[1]+" to "+request[3]+" (X: "+request[4]+", Y: "+request[5]+")");
             std::string temp = "NOTIFY";
             playerMgr.sendAll(NOTIFY+DEL+( isVisible(request[3]) && card->Face ? std::to_string(card->Number) : UNK ));
+        } else if ( request.size() == 4 && request[0] == "ROTATE" ) { // ROTATE <spatial> <card> <rot>
+            CardContainer* container = spatialByName(request[1], player);
+            Card* card;
+
+            int i;
+            try {
+                i = std::stoi(request[2]);
+            } catch ( std::out_of_range ) {
+                player->sendMsg("OUT OF RANGE");
+                continue;
+            } catch ( std::invalid_argument ) {
+                player->sendMsg("NOT A NUMBER");
+                continue;
+            }
+
+            if ( container == nullptr ) {
+                player->sendMsg("NOT FOUND");
+                continue;
+            }
+
+            if ( rotateContainer(player, container, request[2], request[3]) == 0 ) {
+                card = container->card(i);
+                logger.log(player->Name+" Rotated Card_"+std::to_string(card->Number)+" on "+request[1]+" (Rot: "+request[3]+")");
+                std::string temp = "NOTIFY";
+                playerMgr.sendAll(NOTIFY);
+            }
         } else if ( request.size() == 3 && request[0] == "FLIP" ) { // FLIP <spatial> <card>
             CardContainer* container = spatialByName(request[1], player);
 
