@@ -1,4 +1,77 @@
+#ifndef FUNC_CPP
+#define FUNC_CPP
 #include "main.h"
+
+// FUNCTION PROTOTYPES //
+
+/**
+ * Get Player's string Stat by Name
+ *
+ * @param name Stat name
+ * @param player Player
+ * @return Pointer to a Stat if Success, nullptr if Failed (Not Found)
+ */
+std::string* sStatByName ( std::string name, Player* player );
+/**
+ * Get Player's int Stat by Name
+ *
+ * @param name Stat name
+ * @param player Player
+ * @return Pointer to a Stat if Success, nullptr if Failed (Not Found)
+ */
+int* iStatByName ( std::string name, Player* player );
+/**
+ * Get CardContainer by Name
+ *
+ * @param name Container Name
+ * @param player Player, that might own the Container
+ * @return Pointer to a Container if Success, nullptr if Failed (Not Found)
+ */
+CardContainer* containerByName ( std::string name, Player* player );
+/**
+ * Get Spatial CardContainer by Name
+ *
+ * @param name Container Name
+ * @param player Player, that might own the Container
+ * @return Pointer to a Container if Success, nullptr if Failed (Not Found)
+ */
+CardContainer* spatialByName   ( std::string name, Player* player );
+/**
+ * Get Deck CardContainer by Name
+ *
+ * @param name Container Name
+ * @param player Player, that might own the Container
+ * @return Pointer to a Container if Success, nullptr if Failed (Not Found)
+ */
+Deck* deckByName ( std::string name );
+/**
+ * Get a Visibility of Card Container
+ *
+ * @param containerName Container Name
+ * @return True if Container if visible, False otherwise
+ */
+bool isVisible ( std::string containerName );
+/**
+ * Transform Card
+ *
+ * @param player Player that should get response
+ * @param card a Card to transform
+ * @param x X coordinate
+ * @param y Y coordinate
+ * @return 0 if Success, -1 if Failed
+ */
+int transformCard(Player* player, Card* card, std::string x, std::string y);
+/**
+ * Transform Card inside a Container
+ *
+ * @param player Player that should get response
+ * @param container Container, containing a card
+ * @param i Card Index
+ * @param x X coordinate
+ * @param y Y coordinate
+ * @return 0 if Success, -1 if Failed
+ */
+int transformContainer(Player* player, CardContainer* container, std::string i, std::string x, std::string y);
 
 std::random_device rd;
 std::default_random_engine rng(rd());
@@ -93,3 +166,4 @@ int transformContainer(Player* player, CardContainer* container, std::string i, 
         return -1;
     }
 }
+#endif
