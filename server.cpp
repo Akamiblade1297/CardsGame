@@ -1,5 +1,6 @@
 #include "main.h"
 #include "functions.cpp"
+#include "string_func.cpp"
 #include <asm-generic/socket.h>
 #include <cstring>
 #include <stdexcept>
@@ -7,6 +8,7 @@
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <csignal>
+#include <thread>
 
 #define NOTIFY temp+DEL+player->Name+DEL+req
 #define UNK ( card->Trap ? "TRAP" : "TRES" )
@@ -23,25 +25,6 @@ struct sockaddr_in address;
 int addrlen = sizeof(address);
 int server;
 int reuse = 1;
-
-std::string join ( const std::vector<std::string>& vec, const std::string& del ) {
-     return std::accumulate(vec.begin(), vec.end(), std::string{},
-            [del](const std::string& a, const std::string& b) {
-                return a + del + b;
-            });
-}
-
-std::vector<std::string> split( char* str, char del ) {
-    std::vector<std::string> str_vec;
-    std::stringstream str_stream(str);
-    std::string s;
-    
-    while ( std::getline(str_stream, s, del) ) {
-        str_vec.push_back(s);
-    }
-
-    return str_vec;
-}
 
 void worker () {
     char buffer[BUF];
@@ -72,7 +55,7 @@ void worker () {
             CardContainer* dest = containerByName(request[2], player);
             Card* card = nullptr;
             if ( src == dest || src == nullptr || dest == nullptr ) {
-                player->sendMsg("BAD CONTAINER");
+                player->sendMsg("NOT FOUND");
                 continue;
             }
             card = src->pop_and_move(dest);
@@ -102,7 +85,7 @@ void worker () {
             }
 
             if ( src == nullptr || dest == nullptr ) {
-                player->sendMsg("BAD CONTAINER");
+                player->sendMsg("NOT FOUND");
                 continue;
             }
             else if ( src == dest ) {
@@ -114,7 +97,7 @@ void worker () {
             } else {
                 card = src->move(i, dest);
                 if ( card == nullptr ) {
-                    player->sendMsg("INVALID CARD");
+                    player->sendMsg("OUT OF RANGE");
                     continue;
                 } else {
                     transformCard(player, card, request[4], request[5]);
@@ -244,7 +227,7 @@ void worker () {
                 } else {
                     id = "TRES";
                 }
-                cards.push_back(id+' '+std::to_string(card->X)+' '+std::to_string(card->Y));
+                cards.push_back(id+' '+std::to_string(card->X)+' '+std::to_string(card->Y)+' '+std::to_string(card->Rotation));
             }
             std::string temp = "OK";
             player->sendMsg(temp + join(cards, std::string(1,DEL)) + DEL + "END");
@@ -271,7 +254,7 @@ void worker () {
                         id = "TRES";
                     }
                 }
-                cards.push_back(id+' '+std::to_string(card->X)+' '+std::to_string(card->Y));
+                cards.push_back(id+' '+std::to_string(card->X)+' '+std::to_string(card->Y)+' '+std::to_string(card->Rotation));
             }
             std::string temp = "OK";
             player->sendMsg(temp + join(cards, std::string(1,DEL)) + DEL + "END");
