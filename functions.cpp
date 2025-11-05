@@ -1,6 +1,7 @@
 #ifndef FUNC_CPP
 #define FUNC_CPP
 #include "main.h"
+#include <random>
 
 // FUNCTION PROTOTYPES //
 
@@ -93,7 +94,7 @@ int transformContainer(Player* player, CardContainer* container, std::string i, 
 int rotateContainer(Player* player, CardContainer* container, std::string i, std::string rot);
 
 std::random_device rd;
-std::default_random_engine rng(rd());
+std::mt19937 rng(rd());
 
 Table table(&rng);
 

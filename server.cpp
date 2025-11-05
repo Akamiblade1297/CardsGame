@@ -3,6 +3,7 @@
 #include "string_func.cpp"
 #include <asm-generic/socket.h>
 #include <cstring>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <sys/select.h>
@@ -41,6 +42,28 @@ void worker () {
             else                        { temp.push_back(" *");temp.push_back("*"); }
 
             logger.log(player->Name + temp[0] + request[1] + temp[1]);
+        } else if ( request.size() == 3 && request[0] == "ROLL" ) { // ROLL <dice> <number>
+            int dice, num;
+            try {
+                dice = std::stoi(request[1]);
+                num = std::stoi(request[2]);
+                if ( dice < 0 || num < 0 || dice > 100 || num > 10 ) {
+                    player->sendMsg("OUT OF RANGE");
+                    continue;
+                }
+            } catch ( std::out_of_range ) {
+                player->sendMsg("OUT OF RANGE");
+                continue;
+            } catch ( std::invalid_argument ) {
+                player->sendMsg("NOT A NUMBER");
+                continue;
+            }
+            std::vector<std::string> rolled;
+            std::uniform_int_distribution<> dist(1, dice);
+            for ( int _ = 0 ; _ < num ; _++ )
+                rolled.push_back(std::to_string(dist(rng)));
+            std::string temp = "ROLL";
+            playerMgr.sendAll(temp + DEL + player->Name + DEL + request[1] + DEL + request[2] + join(rolled, std::string(1,DEL)));
         } else if ( request.size() == 3 && request[0] == "WHISPER" ) { // WHISPER <player> <message>
             Player* player_dest = playerMgr.playerByName(request[1]);
             std::string temp = "WHISPER";

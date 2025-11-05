@@ -24,7 +24,7 @@
 #include <arpa/inet.h>
 
 #define CONN_REQ_LEN 25
-#define BUF   1024
+#define BUF   4098
 #define CARDS 170
 #define TRESH 95
 #define PORT  8494
@@ -183,20 +183,20 @@ class CardContainer {
  */
 class Deck : public CardContainer {
     private:
-        std::default_random_engine* rng;
+        std::mt19937* rng;
     public:
         /**
          *
          * @param random_engine A random engine used for shuffling
          */
-        Deck ( std::default_random_engine* random_engine ) 
+        Deck ( std::mt19937* random_engine ) 
             : rng(random_engine) {}
         /**
          *
          * @param random_engine A random engine used for shuffling
          * @param cards Inital Cards array
          */
-        Deck ( std::default_random_engine* random_engine, std::vector<Card*> cards ) 
+        Deck ( std::mt19937* random_engine, std::vector<Card*> cards ) 
             : rng(random_engine), CardContainer(cards) {}
 
         /**
@@ -227,7 +227,7 @@ class Deck : public CardContainer {
  */
 class Table : public CardContainer {
     private:
-        std::default_random_engine *Rng;
+        std::mt19937 *Rng;
     public:
         Deck TrapDoors;
         Deck Treasures;
@@ -235,7 +235,7 @@ class Table : public CardContainer {
         /**
          * @param rng Random Number Generator for Shuffling
          */
-        Table ( std::default_random_engine* rng ) : Rng(rng), TrapDoors(Rng), Treasures(Rng) {
+        Table ( std::mt19937* rng ) : Rng(rng), TrapDoors(Rng), Treasures(Rng) {
             for ( int i = 0 ; i < TRESH; i++ ) {
                 Card* card = new Card(i);
                 TrapDoors.push(card);
