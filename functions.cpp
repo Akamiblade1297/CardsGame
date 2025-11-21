@@ -61,7 +61,7 @@ bool isVisible ( std::string containerName );
  * @param y Y coordinate
  * @return 0 if Success, -1 if Failed
  */
-int transformCard(Player* player, Card* card, std::string x, std::string y);
+int transformCard(Player* player, Card* card, std::string x, std::string y, std::string prefix);
 /**
  * Rotate Card
  *
@@ -70,7 +70,7 @@ int transformCard(Player* player, Card* card, std::string x, std::string y);
  * @param rot Rotation
  * @return 0 if Success, -1 if Failed
  */
-int rotateCard(Player* player, Card* card, std::string Rotation);
+int rotateCard(Player* player, Card* card, std::string Rotation, std::string prefix);
 /**
  * Transform Card inside a Container
  *
@@ -81,7 +81,7 @@ int rotateCard(Player* player, Card* card, std::string Rotation);
  * @param y Y coordinate
  * @return 0 if Success, -1 if Failed
  */
-int transformContainer(Player* player, CardContainer* container, std::string i, std::string x, std::string y);
+int transformContainer(Player* player, CardContainer* container, std::string i, std::string x, std::string y, std::string prefix);
 /**
  * Rotate Card inside a Container
  *
@@ -91,7 +91,7 @@ int transformContainer(Player* player, CardContainer* container, std::string i, 
  * @param rot Rotation 
  * @return 0 if Success, -1 if Failed
  */
-int rotateContainer(Player* player, CardContainer* container, std::string i, std::string rot);
+int rotateContainer(Player* player, CardContainer* container, std::string i, std::string rot, std::string prefix);
 
 std::random_device rd;
 std::mt19937 rng(rd());
@@ -157,66 +157,66 @@ CardContainer* spatialByName ( std::string name, Player* player ) {
     }
 }
 
-int transformCard(Player* player, Card* card, std::string x, std::string y) { 
+int transformCard(Player* player, Card* card, std::string x, std::string y, std::string prefix) { 
     try {
         card->transform(std::stoi(x), std::stoi(y));
         return 0;
     } catch ( std::invalid_argument ) {
-        player->sendMsg("NOT NUMBER");
+        player->sendMsg(prefix+DEL+"NOT NUMBER");
         return -1;
     } catch ( std::out_of_range ) {
-        player->sendMsg("OUT OF RANGE");
+        player->sendMsg(prefix+DEL+"OUT OF RANGE");
         return -1;
     }
 }
 
-int rotateCard(Player* player, Card* card, std::string rot) { 
+int rotateCard(Player* player, Card* card, std::string rot, std::string prefix) { 
     try {
         if ( card->rotate(std::stoi(rot)) == 0 ) {
             return 0;
         } else {
-            player->sendMsg("OUT OF RANGE");
+            player->sendMsg(prefix+DEL+"OUT OF RANGE");
             return -1;
         }
     } catch ( std::invalid_argument ) {
-        player->sendMsg("NOT NUMBER");
+        player->sendMsg(prefix+DEL+"NOT NUMBER");
         return -1;
     } catch ( std::out_of_range ) {
-        player->sendMsg("OUT OF RANGE");
+        player->sendMsg(prefix+DEL+"OUT OF RANGE");
         return -1;
     }
 }
 
-int transformContainer(Player* player, CardContainer* container, std::string i, std::string x, std::string y) { 
+int transformContainer(Player* player, CardContainer* container, std::string i, std::string x, std::string y, std::string prefix) { 
     try {
         if ( container->transform(std::stoi(i), std::stoi(x), std::stoi(y)) == 0 ) {
             return 0;
         } else {
-            player->sendMsg("NOT FOUND");
+            player->sendMsg(prefix+DEL+"NOT FOUND");
             return -1;
         }
     } catch ( std::invalid_argument ) {
-        player->sendMsg("NOT NUMBER");
+        player->sendMsg(prefix+DEL+"NOT NUMBER");
         return -1;
     } catch ( std::out_of_range ) {
-        player->sendMsg("OUT OF RANGE");
+        player->sendMsg(prefix+DEL+"OUT OF RANGE");
         return -1;
     }
 }
 
-int rotateContainer(Player* player, CardContainer* container, std::string i, std::string rot) { 
+int rotateContainer(Player* player, CardContainer* container, std::string i, std::string rot, std::string prefix) { 
     try {
         if ( container->rotate(std::stoi(i), std::stoi(rot)) == 0 ) {
             return 0;
         } else {
-            player->sendMsg("ERROR");
+            player->sendMsg(prefix+DEL+"OUT OF RANGE");
             return -1;
         }
     } catch ( std::invalid_argument ) {
-        player->sendMsg("NOT NUMBER");
+        player->sendMsg(prefix+DEL+"NOT NUMBER");
         return -1;
     } catch ( std::out_of_range ) {
-        player->sendMsg("OUT OF RANGE");
+        player->sendMsg(prefix+DEL+"OUT OF RANGE");
         return -1;
     }
 }
