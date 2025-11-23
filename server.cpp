@@ -74,6 +74,7 @@ void worker () {
                 rolled.push_back(std::to_string(dist(rng)));
             temp = "ROLL";
             playerMgr.sendAll(temp + DEL + player->Name + DEL + request[1] + DEL + request[2] + join(rolled, std::string(1,DEL)));
+            logger.log(player->Name+" rolled "+request[2]+" dices of "+request[1]+":"+join(rolled, " "));
         } else if ( request.size() == 5 && request[0] == "DECK" ) { // DECK <deck src> <dest> <x> <y>
             Deck* src           = deckByName(request[1]);
             CardContainer* dest = containerByName(request[2], player);
@@ -354,16 +355,30 @@ void establisher () {
 
         if ( request.size() == 2 && request[0] == "JOIN" ) {
             name = request[1];
+            std::string temp = "RENAME";
+            while ( playerMgr.playerByName(name) != nullptr ) {
+                send(client, temp.data(), temp.size(), 0);
+                timeout.tv_sec = 10; timeout.tv_usec = 0;
+                int res = select(client+1, &set, NULL, NULL, &timeout);
+                switch ( res ){
+                    case 0:
+                        logger.log(address_string+" connection timed out");
+                        strcpy(buffer, "TIMEOUT");
+                        send(client, buffer, 7, 0);
+                        close(client);
+                        break;
+                    case -1:
+                        logger.log("Unexpected error occured on "+address_string+" connection");
+                        close(client);
+                }
+                if ( res <= 0 ) break;
+                len = read(client, buffer, CONN_REQ_LEN);
+                buffer[len-1] = 0;
+                name = buffer;
+            }
             Player* player = playerMgr.join(name, client);
             logger.log(address_string+" assigned as "+player->Name);
-            std::string temp;
-            if ( player->Name == name )
-                temp = "OK";
-            else {
-                temp = "RENAMED";
-                temp += DEL+player->Name;
-            }
-
+            temp = "OK";
             char cpass[9] = {0};
             pass = player->pass();
             std::memcpy(cpass, &pass, 8);
@@ -371,8 +386,8 @@ void establisher () {
 
             temp = "JOIN";
             playerMgr.sendAll(temp+DEL+player->Name);
-        } else if ( len == 15 && req[6] == '\n' && req.substr(0, 6) == "REJOIN" ) { 
-            std::memcpy(&pass, req.substr(7,8).data(), 8);
+        } else if ( len == 15 && req[6] == DEL && req.substr(0, 6) == "REJOIN" ) { 
+            std::memcpy(&pass, req.data()+7, 8);
             Player* player = playerMgr.rejoin(pass, client);
             if ( player == nullptr ) {
                 std::string response = "NOT FOUND";
@@ -380,7 +395,8 @@ void establisher () {
                 close(client);
             } else {
                 logger.log(player->Name+" rejoined from "+address_string);
-                player->sendMsg("OK");
+                std::string temp = "OK";
+                player->sendMsg(temp+DEL+player->Name);
             }
         } else {
             std::string response = "BAD REQUEST";

@@ -343,6 +343,7 @@ class PlayerManager {
         Log* Logger;
         std::mutex join_mutex;
         std::random_device& rd;
+        std::uniform_int_distribution<uint64_t> dist;
 
         static void receiver ( Player* player, WorkerQueue* queue, Log* logger ) {
             char buffer[BUF] = {0};
@@ -353,9 +354,9 @@ class PlayerManager {
             }
         };
         uint64_t gen_pass () {
-            uint64_t new_pass = rd();
-            new_pass = (new_pass<<32) + rd();
-            return new_pass;
+            uint64_t pass = dist(rd);
+            while ( playerByPass(pass) != nullptr ) pass = dist(rd); // Ensure, that player gets a unique pass
+            return pass;
         }
     public:
         /**
@@ -441,11 +442,6 @@ class PlayerManager {
          */
         Player* join( std::string name, const int socket ) {
             std::lock_guard<std::mutex> lock(join_mutex);
-            for ( Player* player : Players ) {
-                if ( player->Name == name ) {
-                    name = name+"_ЖалкаяПародия";
-                }
-            }
             Player* new_player = new Player(gen_pass(), name, socket);
             Players.push_back(new_player);
 
