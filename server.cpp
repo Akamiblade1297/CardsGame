@@ -14,12 +14,7 @@
 #define NOTIFY temp+DEL+player->Name+DEL+req
 #define UNK ( card->Trap ? "TRAP" : "TRES" )
 
-// void verb ( std::string msg ) {
-//     if ( verbose ) std::cout << msg << std::endl;
-// }
-
 Log logger("logs/log");
-// bool verbose = false;
 WorkerQueue queue;
 PlayerManager playerMgr(&queue, &logger, rd);
 struct sockaddr_in address;
@@ -90,7 +85,7 @@ void worker () {
             } else if ( transformCard(player, card, request[3], request[4], temp) != 0 ) {
                 player->sendMsg(temp+DEL+"NOT FOUND");
             } else {
-                logger.log(player->Name+" moved Card_"+std::to_string(card->Number)+" from "+request[1]+" to "+request[2]+" (X: "+request[3]+", Y: "+request[4]+")");
+                logger.log(player->Name+" drawed Card_"+std::to_string(card->Number)+" from "+request[1]+" to "+request[2]+"["+std::to_string(dest->Cards.size()-1)+"] (X: "+request[3]+", Y: "+request[4]+")");
                 temp = "NOTIFY";
                 playerMgr.sendAll(NOTIFY+DEL+( isVisible(request[2]) && card->Face ? std::to_string(card->Number) : UNK ));
             }
@@ -130,7 +125,7 @@ void worker () {
                     transformCard(player, card, request[4], request[5], temp);
                 }
             }
-            logger.log(player->Name+" moved Card_"+std::to_string(card->Number)+" from "+request[1]+" to "+request[3]+" (X: "+request[4]+", Y: "+request[5]+")");
+            logger.log(player->Name+" moved Card_"+std::to_string(card->Number)+" from "+request[1]+"["+request[2]+"] to "+request[3]+"["+std::to_string(dest->Cards.size()-1)+"] (X: "+request[4]+", Y: "+request[5]+")");
             temp = "NOTIFY";
             playerMgr.sendAll(NOTIFY+DEL+( isVisible(request[3]) && card->Face ? std::to_string(card->Number) : UNK ));
         } else if ( request.size() == 4 && request[0] == "ROTATE" ) { // ROTATE <spatial> <card> <rot>
@@ -156,7 +151,7 @@ void worker () {
 
             if ( rotateContainer(player, container, request[2], request[3], temp) == 0 ) {
                 card = container->card(i);
-                logger.log(player->Name+" Rotated Card_"+std::to_string(card->Number)+" on "+request[1]+" (Rot: "+request[3]+")");
+                logger.log(player->Name+" Rotated Card_"+std::to_string(card->Number)+" on "+request[1]+"["+request[2]+"] (Rot: "+request[3]+")");
                 temp = "NOTIFY";
                 playerMgr.sendAll(NOTIFY);
             } else {
@@ -187,7 +182,7 @@ void worker () {
                 player->sendMsg("OUT OF RANGE");
             } else {
                 card->flip();
-                logger.log(player->Name+" flipped Card_"+std::to_string(card->Number)+" on "+request[1]);
+                logger.log(player->Name+" flipped Card_"+std::to_string(card->Number)+" on "+request[1]+"["+request[2]+"] ("+((card->Face) ? (std::string(UNK)+" -> "+std::to_string(card->Number)) : (std::to_string(card->Number)+" -> "+UNK)) +")");
                 if ( isVisible(request[1]) ) {
                     std::string temp = "NOTIFY";
                     playerMgr.sendAll(NOTIFY+DEL+( isVisible(request[1]) && card->Face ? std::to_string(card->Number) : UNK ));
@@ -231,10 +226,14 @@ void worker () {
             temp = "NOTIFY";
             playerMgr.sendAll(NOTIFY);
         } else if ( request.size() == 2 && request[0] == "RENAME") { // RENAME <new_name>
-            logger.log(player->Name+" renamed to "+request[1]);
-            std::string temp = "NOTIFY";
-            playerMgr.sendAll(NOTIFY);
-            player->Name = request[1];
+            if ( playerMgr.playerByName(request[1]) != nullptr ) {
+                player->sendMsg("RENAME_ERR");
+            } else {
+                logger.log(player->Name+" renamed to "+request[1]);
+                std::string temp = "NOTIFY";
+                playerMgr.sendAll(NOTIFY);
+                player->Name = request[1];
+            }
         } else if (  request.size() == 2 && request[0] == "SEE" ) { // SEE <spatial/player>
             CardContainer* container = spatialByName(request[1], player);
             if ( container == nullptr ) {
@@ -300,7 +299,7 @@ void worker () {
             for ( int i = 1 ; i <= playerMgr.size() ; i++ ) players.push_back(playerMgr.playerById(i)->Name);
             std::string temp = "PLAYERS";
             player->sendMsg(temp+join(players, std::string(1,DEL))+DEL+"END");
-        } else if ( request.size() == 2 && request[0] == "PING" && request[1].size() == 4 ) { // PING <random data>
+        } else if ( request.size() == 2 && request[0] == "PING" && request[1].size() == 8 ) { // PING <random data>
             std::string temp = "PONG";
             player->sendMsg(temp + DEL + request[1]);
         } else {
@@ -355,6 +354,7 @@ void establisher () {
 
         if ( request.size() == 2 && request[0] == "JOIN" ) {
             name = request[1];
+            bool failed = false;
             std::string temp = "RENAME";
             while ( playerMgr.playerByName(name) != nullptr ) {
                 send(client, temp.data(), temp.size(), 0);
@@ -371,23 +371,30 @@ void establisher () {
                         logger.log("Unexpected error occured on "+address_string+" connection");
                         close(client);
                 }
-                if ( res <= 0 ) break;
+                if ( res <= 0 ) { failed = true; break; }
                 len = read(client, buffer, CONN_REQ_LEN);
-                buffer[len-1] = 0;
+                if ( len <= 0 ) { failed = true; break; }
+                if ( buffer[len-1] == DEL )
+                    buffer[len-1] = 0;
+                else
+                    buffer[len] = 0;
+
                 name = buffer;
             }
+            if ( failed ) continue;
             Player* player = playerMgr.join(name, client);
             logger.log(address_string+" assigned as "+player->Name);
             temp = "OK";
-            char cpass[9] = {0};
+            temp += DEL;
             pass = player->pass();
-            std::memcpy(cpass, &pass, 8);
-            player->sendMsg(temp + DEL + cpass);
+            temp.append((char*)&pass, 8);
+
+            player->sendMsg(temp);
 
             temp = "JOIN";
             playerMgr.sendAll(temp+DEL+player->Name);
-        } else if ( len == 15 && req[6] == DEL && req.substr(0, 6) == "REJOIN" ) { 
-            std::memcpy(&pass, req.data()+7, 8);
+        } else if ( ( len == 16 || len == 15 ) && req[6] == DEL && req.substr(0, 6) == "REJOIN" ) { 
+            std::memcpy(&pass, buffer+7, 8);
             Player* player = playerMgr.rejoin(pass, client);
             if ( player == nullptr ) {
                 std::string response = "NOT FOUND";

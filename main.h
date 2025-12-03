@@ -355,6 +355,7 @@ class PlayerManager {
         };
         uint64_t gen_pass () {
             uint64_t pass = dist(rd);
+            // uint64_t pass = 0xEAEAEA00EAEA00EA;
             while ( playerByPass(pass) != nullptr ) pass = dist(rd); // Ensure, that player gets a unique pass
             return pass;
         }
